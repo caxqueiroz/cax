@@ -2,8 +2,43 @@ package scheduler
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
+
+	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/memory"
 )
+
+// fakeEmbedder is a deterministic hash->vector embedder for memory tests.
+type fakeEmbedder struct{ dim int }
+
+func (f fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, t := range texts {
+		v := make([]float32, f.dim)
+		for j := 0; j < f.dim; j++ {
+			v[j] = float32((len(t)+j*7)%13) / 13.0
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+func (f fakeEmbedder) Dim() int      { return f.dim }
+func (f fakeEmbedder) Model() string { return "fake" }
+
+func openStore(t *testing.T) *memory.Store {
+	t.Helper()
+	st, err := memory.Open(config.MemoryConfig{
+		DBPath:      filepath.Join(t.TempDir(), "mem.db"),
+		TokenBudget: 8000,
+		RecallK:     5,
+	}, fakeEmbedder{dim: 8})
+	if err != nil {
+		t.Fatalf("memory.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
 
 func TestNewStartStop(t *testing.T) {
 	called := 0
@@ -23,5 +58,61 @@ func TestNewStartStop(t *testing.T) {
 
 	if called != 0 {
 		t.Fatalf("RunFunc should not be invoked without schedules, got %d calls", called)
+	}
+}
+
+func TestLoadRegistersEnabledAndRunsJob(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+
+	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
+		Name: "nightly", Cron: "0 0 * * *", Prompt: "daily report", Channel: "cli", Enabled: true,
+	}); err != nil {
+		t.Fatalf("upsert enabled: %v", err)
+	}
+	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
+		Name: "off", Cron: "0 0 * * *", Prompt: "nope", Channel: "cli", Enabled: false,
+	}); err != nil {
+		t.Fatalf("upsert disabled: %v", err)
+	}
+
+	type call struct{ prompt, channel string }
+	var got []call
+	run := func(_ context.Context, prompt, ch string) error {
+		got = append(got, call{prompt, ch})
+		return nil
+	}
+
+	s := New(st, run)
+	if err := s.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if _, ok := s.jobs["off"]; ok {
+		t.Fatal("disabled schedule must not be registered")
+	}
+	job, ok := s.jobs["nightly"]
+	if !ok {
+		t.Fatal("enabled schedule was not registered")
+	}
+
+	job() // invoke the registered job func directly — deterministic, no clock wait
+
+	if len(got) != 1 || got[0].prompt != "daily report" || got[0].channel != "cli" {
+		t.Fatalf("RunFunc not invoked correctly: %+v", got)
+	}
+
+	scheds, err := st.ListSchedules(ctx)
+	if err != nil {
+		t.Fatalf("ListSchedules: %v", err)
+	}
+	var found bool
+	for _, sc := range scheds {
+		if sc.Name == "nightly" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("nightly schedule missing after load")
 	}
 }

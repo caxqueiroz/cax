@@ -6,10 +6,14 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/caxqueiroz/czcli/internal/config"
 	"github.com/caxqueiroz/czcli/internal/memory"
 )
 
@@ -48,4 +52,61 @@ func (s *Scheduler) Start() { s.cron.Start() }
 func (s *Scheduler) Stop() {
 	ctx := s.cron.Stop()
 	<-ctx.Done()
+}
+
+// Load reads enabled schedules from the store and registers a cron entry per
+// schedule. Invalid cron expressions are logged and skipped (never fatal).
+func (s *Scheduler) Load(ctx context.Context) error {
+	scheds, err := s.store.ListSchedules(ctx)
+	if err != nil {
+		return fmt.Errorf("list schedules: %w", err)
+	}
+	for _, sc := range scheds {
+		if !sc.Enabled {
+			continue
+		}
+		s.register(sc)
+	}
+	return nil
+}
+
+// register validates and registers a single schedule. A bad cron spec is logged
+// and skipped; registration is idempotent per name (caller clears old entries).
+func (s *Scheduler) register(sc config.ScheduleConfig) {
+	if _, err := cron.ParseStandard(sc.Cron); err != nil {
+		slog.Warn("scheduler: skipping invalid cron expression",
+			"schedule", sc.Name, "cron", sc.Cron, "error", err)
+		return
+	}
+
+	job := s.makeJob(sc)
+
+	id, err := s.cron.AddFunc(sc.Cron, job)
+	if err != nil {
+		// Should not happen after ParseStandard succeeds, but stay defensive.
+		slog.Warn("scheduler: failed to add schedule", "schedule", sc.Name, "error", err)
+		return
+	}
+
+	s.mu.Lock()
+	s.jobs[sc.Name] = job
+	s.entries[sc.Name] = id
+	s.mu.Unlock()
+}
+
+// makeJob builds the func cron runs: execute the prompt via RunFunc, then record
+// last-run time. Run errors are logged and do not stop the scheduler.
+func (s *Scheduler) makeJob(sc config.ScheduleConfig) func() {
+	return func() {
+		ctx := context.Background()
+		if err := s.run(ctx, sc.Prompt, sc.Channel); err != nil {
+			slog.Error("scheduler: run failed",
+				"schedule", sc.Name, "channel", sc.Channel, "error", err)
+		}
+		if s.store != nil {
+			if err := s.store.SetLastRun(ctx, sc.Name, time.Now()); err != nil {
+				slog.Error("scheduler: set last run failed", "schedule", sc.Name, "error", err)
+			}
+		}
+	}
 }
