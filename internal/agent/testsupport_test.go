@@ -26,15 +26,12 @@ func (s *scriptStream) Err() error        { return nil }
 func (s *scriptStream) Close() error      { return nil }
 
 // scriptLLM is a deterministic llm.StreamingLLM. It returns replyText as a
-// single assistant message and reports usage. It records the system prompt and
-// messages it last saw so tests can assert what the hooks injected. It is
-// distinct from model_test.go's fakeLLM, which is tailored to fallback tests.
+// single assistant message and reports usage. It is distinct from
+// model_test.go's fakeLLM, which is tailored to the fallback tests.
 type scriptLLM struct {
-	mu         sync.Mutex
-	replyText  string
-	usage      *llm.Usage
-	lastSystem string
-	lastMsgs   []*llm.Message
+	mu        sync.Mutex
+	replyText string
+	usage     *llm.Usage
 }
 
 func newScriptLLM(reply string) *scriptLLM {
@@ -45,15 +42,6 @@ func newScriptLLM(reply string) *scriptLLM {
 }
 
 func (f *scriptLLM) Name() string { return "fake" }
-
-func (f *scriptLLM) capture(opts []llm.Option) {
-	var cfg llm.Config
-	cfg.Apply(opts...)
-	f.mu.Lock()
-	f.lastSystem = cfg.SystemPrompt
-	f.lastMsgs = cfg.Messages
-	f.mu.Unlock()
-}
 
 func (f *scriptLLM) response() *llm.Response {
 	return &llm.Response{
@@ -71,13 +59,11 @@ func (f *scriptLLM) reply() string {
 	return f.replyText
 }
 
-func (f *scriptLLM) Generate(_ context.Context, opts ...llm.Option) (*llm.Response, error) {
-	f.capture(opts)
+func (f *scriptLLM) Generate(_ context.Context, _ ...llm.Option) (*llm.Response, error) {
 	return f.response(), nil
 }
 
-func (f *scriptLLM) Stream(_ context.Context, opts ...llm.Option) (llm.StreamIterator, error) {
-	f.capture(opts)
+func (f *scriptLLM) Stream(_ context.Context, _ ...llm.Option) (llm.StreamIterator, error) {
 	idx := 0
 	reply := f.reply()
 	events := []*llm.Event{
@@ -91,25 +77,13 @@ func (f *scriptLLM) Stream(_ context.Context, opts ...llm.Option) (llm.StreamIte
 	return &scriptStream{events: events}, nil
 }
 
-func (f *scriptLLM) seenSystem() string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.lastSystem
-}
-
-func (f *scriptLLM) seenMessages() []*llm.Message {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.lastMsgs
-}
-
 func TestScriptLLMStreamsReply(t *testing.T) {
 	f := newScriptLLM("hello world")
 	it, err := f.Stream(context.Background())
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 	acc := llm.NewResponseAccumulator()
 	for it.Next() {
 		if err := acc.AddEvent(it.Event()); err != nil {

@@ -47,11 +47,11 @@ func (d *confirmDialog) Show(_ context.Context, in *dive.DialogInput) (*dive.Dia
 		title = "tool"
 	}
 	if in.Message != "" {
-		fmt.Fprintf(d.out, "\n[permission] %s wants to run:\n  %s\n", title, in.Message)
+		_, _ = fmt.Fprintf(d.out, "\n[permission] %s wants to run:\n  %s\n", title, in.Message)
 	} else {
-		fmt.Fprintf(d.out, "\n[permission] allow %s?\n", title)
+		_, _ = fmt.Fprintf(d.out, "\n[permission] allow %s?\n", title)
 	}
-	fmt.Fprint(d.out, "Allow? [y/N]: ")
+	_, _ = fmt.Fprint(d.out, "Allow? [y/N]: ")
 
 	reader := bufio.NewReader(d.in)
 	line, err := reader.ReadString('\n')

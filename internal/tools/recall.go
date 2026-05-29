@@ -42,9 +42,9 @@ func RecallTool(store *memory.Store) dive.Tool {
 				return dive.NewToolResultText("No relevant memories found."), nil
 			}
 			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("Found %d relevant memories:\n", len(results)))
+			fmt.Fprintf(&sb, "Found %d relevant memories:\n", len(results))
 			for i, r := range results {
-				sb.WriteString(fmt.Sprintf("%d. (distance %.4f) %s\n", i+1, r.Distance, strings.TrimSpace(r.Text)))
+				fmt.Fprintf(&sb, "%d. (distance %.4f) %s\n", i+1, r.Distance, strings.TrimSpace(r.Text))
 			}
 			return dive.NewToolResultText(sb.String()), nil
 		},

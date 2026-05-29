@@ -60,7 +60,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("build assistant: %w", err)
 	}
 
-	fmt.Fprintln(os.Stdout, "czcli ready. Type a message (Ctrl-D to exit).")
+	_, _ = fmt.Fprintln(os.Stdout, "czcli ready. Type a message (Ctrl-D to exit).")
 	return readLoop(ctx, "cli", os.Stdin, os.Stdout, assistant.Handle)
 }
 
@@ -70,7 +70,7 @@ func readLoop(ctx context.Context, sessionID string, in io.Reader, out io.Writer
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for {
-		fmt.Fprint(out, "> ")
+		_, _ = fmt.Fprint(out, "> ")
 		if !scanner.Scan() {
 			break
 		}
@@ -82,22 +82,22 @@ func readLoop(ctx context.Context, sessionID string, in io.Reader, out io.Writer
 		emit := func(ev channel.StreamEvent) {
 			switch ev.Type {
 			case "text":
-				fmt.Fprint(out, ev.Text)
+				_, _ = fmt.Fprint(out, ev.Text)
 			case "tool_start":
-				fmt.Fprintf(out, "\n[tool: %s]\n", ev.Text)
+				_, _ = fmt.Fprintf(out, "\n[tool: %s]\n", ev.Text)
 			case "subagent_start":
-				fmt.Fprintf(out, "\n[subagent: %s]\n", ev.Text)
+				_, _ = fmt.Fprintf(out, "\n[subagent: %s]\n", ev.Text)
 			case "error":
-				fmt.Fprintf(out, "\n[error: %s]\n", ev.Text)
+				_, _ = fmt.Fprintf(out, "\n[error: %s]\n", ev.Text)
 			}
 		}
 
 		if _, err := handle(ctx, channel.Message{SessionID: sessionID, Text: text}, emit); err != nil {
-			fmt.Fprintf(out, "\nerror: %v\n", err)
+			_, _ = fmt.Fprintf(out, "\nerror: %v\n", err)
 			continue
 		}
 		// Ensure a clean line after streamed deltas.
-		fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out)
 	}
 	return scanner.Err()
 }
