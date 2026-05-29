@@ -1,31 +1,34 @@
-// Command czcli runs the assistant over a simple stdin/stdout loop. Plan 4
-// replaces this entrypoint with a Bubble Tea TUI.
+// Command czcli runs the assistant as a Bubble Tea TUI: it loads config, wires
+// the memory store, multi-provider model, and dive agent, then launches the CLI
+// channel which renders the dashboard and streams replies live.
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
-	"strings"
+	"os/signal"
+	"syscall"
 
 	"github.com/caxqueiroz/czcli/internal/agent"
-	"github.com/caxqueiroz/czcli/internal/channel"
+	"github.com/caxqueiroz/czcli/internal/channel/cli"
 	"github.com/caxqueiroz/czcli/internal/config"
 	"github.com/caxqueiroz/czcli/internal/memory"
 )
 
 func main() {
-	if err := run(context.Background()); err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "czcli: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// run loads config, wires dependencies, and starts the read loop.
-func run(ctx context.Context) error {
+// run loads config, wires dependencies, and launches the TUI channel.
+func run() error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	path := os.Getenv("CZCLI_CONFIG")
 	if path == "" {
 		path = "config.yaml"
@@ -60,44 +63,9 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("build assistant: %w", err)
 	}
 
-	_, _ = fmt.Fprintln(os.Stdout, "czcli ready. Type a message (Ctrl-D to exit).")
-	return readLoop(ctx, "cli", os.Stdin, os.Stdout, assistant.Handle)
-}
-
-// readLoop reads one line per turn, runs it through handle, streams text deltas
-// inline, and prints the final reply. It returns nil on EOF.
-func readLoop(ctx context.Context, sessionID string, in io.Reader, out io.Writer, handle channel.Handler) error {
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for {
-		_, _ = fmt.Fprint(out, "> ")
-		if !scanner.Scan() {
-			break
-		}
-		text := strings.TrimSpace(scanner.Text())
-		if text == "" {
-			continue
-		}
-
-		emit := func(ev channel.StreamEvent) {
-			switch ev.Type {
-			case "text":
-				_, _ = fmt.Fprint(out, ev.Text)
-			case "tool_start":
-				_, _ = fmt.Fprintf(out, "\n[tool: %s]\n", ev.Text)
-			case "subagent_start":
-				_, _ = fmt.Fprintf(out, "\n[subagent: %s]\n", ev.Text)
-			case "error":
-				_, _ = fmt.Fprintf(out, "\n[error: %s]\n", ev.Text)
-			}
-		}
-
-		if _, err := handle(ctx, channel.Message{SessionID: sessionID, Text: text}, emit); err != nil {
-			_, _ = fmt.Fprintf(out, "\nerror: %v\n", err)
-			continue
-		}
-		// Ensure a clean line after streamed deltas.
-		_, _ = fmt.Fprintln(out)
+	ch := cli.New(cli.WithSessionID("cli"))
+	if err := ch.Start(ctx, assistant.Handle, assistant.Status); err != nil {
+		return fmt.Errorf("run cli channel: %w", err)
 	}
-	return scanner.Err()
+	return nil
 }
