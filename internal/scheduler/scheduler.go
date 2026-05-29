@@ -33,11 +33,25 @@ type Scheduler struct {
 	entries map[string]cron.EntryID // schedule name -> cron entry id (for reload removal)
 }
 
+// slogCronLogger adapts log/slog to cron.Logger (Info/Error), so cron's internal
+// logging — including recovered panics — flows through structured slog output.
+type slogCronLogger struct{ l *slog.Logger }
+
+func (c slogCronLogger) Info(msg string, kv ...interface{}) { c.l.Info("cron: "+msg, kv...) }
+func (c slogCronLogger) Error(err error, msg string, kv ...interface{}) {
+	c.l.Error("cron: "+msg, append([]interface{}{"error", err}, kv...)...)
+}
+
 // New constructs a Scheduler. The cron instance recovers job panics and bridges
-// cron's logger to log/slog (configured in Task 4).
+// cron's logger to log/slog.
 func New(store *memory.Store, run RunFunc) *Scheduler {
+	logger := slogCronLogger{l: slog.Default()}
+	c := cron.New(
+		cron.WithLogger(logger),
+		cron.WithChain(cron.Recover(logger)),
+	)
 	return &Scheduler{
-		cron:    cron.New(),
+		cron:    c,
 		store:   store,
 		run:     run,
 		jobs:    make(map[string]func()),
@@ -94,14 +108,24 @@ func (s *Scheduler) register(sc config.ScheduleConfig) {
 	s.mu.Unlock()
 }
 
-// makeJob builds the func cron runs: execute the prompt via RunFunc, then record
-// last-run time. Run errors are logged and do not stop the scheduler.
+// makeJob builds the func cron runs: execute the prompt via RunFunc, record
+// last-run time, and recover panics so a single job never kills the scheduler.
+// The recover here makes direct invocation (tests) panic-safe too; the cron
+// chain's Recover wrapper covers the scheduled path identically.
 func (s *Scheduler) makeJob(sc config.ScheduleConfig) func() {
 	return func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("scheduler: job panicked",
+					"schedule", sc.Name, "channel", sc.Channel, "panic", r)
+			}
+		}()
+
 		ctx := context.Background()
 		if err := s.run(ctx, sc.Prompt, sc.Channel); err != nil {
 			slog.Error("scheduler: run failed",
 				"schedule", sc.Name, "channel", sc.Channel, "error", err)
+			return // skip SetLastRun on failure so a retry/inspection is possible
 		}
 		if s.store != nil {
 			if err := s.store.SetLastRun(ctx, sc.Name, time.Now()); err != nil {

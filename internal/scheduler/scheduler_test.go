@@ -116,3 +116,34 @@ func TestLoadRegistersEnabledAndRunsJob(t *testing.T) {
 		t.Fatal("nightly schedule missing after load")
 	}
 }
+
+func TestJobRecoversPanic(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+
+	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
+		Name: "boom", Cron: "* * * * *", Prompt: "p", Channel: "cli", Enabled: true,
+	}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	s := New(st, func(context.Context, string, string) error {
+		panic("kaboom")
+	})
+	if err := s.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	job, ok := s.jobs["boom"]
+	if !ok {
+		t.Fatal("schedule not registered")
+	}
+
+	// Must NOT panic; recovered inside the job wrapper.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panic propagated out of job: %v", r)
+		}
+	}()
+	job()
+}
