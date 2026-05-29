@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -92,6 +94,131 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	_ = msg
-	return m, nil
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.viewport.Width = msg.Width
+		m.viewport.Height = max(1, msg.Height-6)
+		m.input.Width = max(1, msg.Width-2)
+		m.ready = true
+		m.refreshViewport()
+		return m, nil
+
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
+			return m, tea.Quit
+		case tea.KeyEnter:
+			return m.submit()
+		}
+
+	case streamDeltaMsg:
+		m.stream += msg.text
+		m.refreshViewport()
+		return m, nil
+
+	case toolEventMsg:
+		// Surfaced via /tools; no inline echo to keep the pane clean.
+		return m, nil
+
+	case subagentEventMsg:
+		switch msg.kind {
+		case "subagent_start":
+			m.running = append(m.running, msg.name)
+		case "subagent_end":
+			m.running = removeFirst(m.running, msg.name)
+		}
+		return m, nil
+
+	case turnDoneMsg:
+		m.streaming = false
+		if msg.err != nil {
+			m.lastErr = msg.err.Error()
+		} else {
+			text := msg.reply
+			if text == "" {
+				text = m.stream
+			}
+			m.history = append(m.history, historyEntry{who: "bot", text: text})
+		}
+		m.stream = ""
+		m.refreshViewport()
+		return m, requestStatus
+
+	case statusMsg:
+		if msg.err == nil {
+			m.status = msg.status
+			m.hasStatus = true
+			if len(msg.status.RunningSubagents) > 0 {
+				m.running = append([]string(nil), msg.status.RunningSubagents...)
+			}
+		}
+		return m, nil
+
+	case statusRequestMsg:
+		// The program wrapper (cli.go) intercepts this to fetch status out of
+		// band; the pure model treats it as a no-op.
+		return m, nil
+	}
+
+	// Delegate remaining keys to the input; scroll keys to the viewport.
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	cmds = append(cmds, cmd)
+	m.viewport, cmd = m.viewport.Update(msg)
+	cmds = append(cmds, cmd)
+	return m, tea.Batch(cmds...)
+}
+
+// submit handles Enter: slash-commands are dispatched locally; plain text is
+// echoed and a submitMsg is emitted so cli.go can run the turn.
+func (m model) submit() (tea.Model, tea.Cmd) {
+	line := strings.TrimSpace(m.input.Value())
+	m.input.Reset()
+	if line == "" {
+		return m, nil
+	}
+	if strings.HasPrefix(line, "/") {
+		out, quit := m.handleCommand(line)
+		if quit {
+			return m, tea.Quit
+		}
+		if out != "" {
+			m.history = append(m.history, historyEntry{who: "sys", text: out})
+			m.refreshViewport()
+		}
+		return m, nil
+	}
+	m.history = append(m.history, historyEntry{who: "you", text: line})
+	m.streaming = true
+	m.stream = ""
+	m.lastErr = ""
+	m.refreshViewport()
+	return m, emitSubmit(line)
+}
+
+func emitSubmit(line string) tea.Cmd {
+	return func() tea.Msg { return submitMsg{line: line} }
+}
+
+// requestStatus is a sentinel cmd whose statusRequestMsg the program wrapper in
+// cli.go intercepts to run the StatusFunc out of band.
+func requestStatus() tea.Msg { return statusRequestMsg{} }
+
+func removeFirst(xs []string, v string) []string {
+	for i, x := range xs {
+		if x == v {
+			return append(xs[:i:i], xs[i+1:]...)
+		}
+	}
+	return xs
+}
+
+// handleCommand is a temporary stub replaced by commands.go in Task 5.
+func (m model) handleCommand(line string) (string, bool) {
+	_ = line
+	return "", false
 }
