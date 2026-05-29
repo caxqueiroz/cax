@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -8,7 +9,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/caxqueiroz/czcli/internal/channel"
+	"github.com/caxqueiroz/czcli/internal/config"
 )
+
+// scheduleBackend is the store-backed CRUD surface the /schedule command drives.
+// It is satisfied in cmd/czcli by an adapter over memory.Store + scheduler so the
+// CLI package depends only on config, not on the scheduler package.
+type scheduleBackend interface {
+	List(ctx context.Context) ([]config.ScheduleConfig, error)
+	Upsert(ctx context.Context, sc config.ScheduleConfig) error
+	Reload(ctx context.Context) error
+}
 
 // historyEntry is one rendered conversation line ("you:" / "bot:" / system).
 type historyEntry struct {
@@ -69,6 +80,8 @@ type model struct {
 	hasStatus bool
 	running   []string // running subagent names (live)
 	lastErr   string
+
+	sched scheduleBackend // optional; nil when the scheduler isn't wired
 
 	ready bool // viewport sized at least once
 }

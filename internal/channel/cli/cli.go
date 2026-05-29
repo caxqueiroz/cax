@@ -21,6 +21,7 @@ var _ channel.Channel = (*CLI)(nil)
 type CLI struct {
 	sessionID      string
 	statusInterval time.Duration
+	sched          scheduleBackend
 }
 
 // Option configures a CLI.
@@ -32,6 +33,12 @@ func WithSessionID(id string) Option { return func(c *CLI) { c.sessionID = id } 
 // WithStatusInterval sets how often the dashboard is refreshed while idle.
 func WithStatusInterval(d time.Duration) Option {
 	return func(c *CLI) { c.statusInterval = d }
+}
+
+// WithScheduler wires the store-backed /schedule CRUD backend. When unset, the
+// /schedule command reports that scheduling is not available.
+func WithScheduler(b scheduleBackend) Option {
+	return func(c *CLI) { c.sched = b }
 }
 
 // New builds a CLI channel with sensible defaults.
@@ -56,8 +63,10 @@ type tickMsg struct{}
 // refreshing status via status. It blocks until ctx is cancelled or the user
 // quits.
 func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.StatusFunc) error {
+	m := newModel(80, 24)
+	m.sched = c.sched
 	pm := &programModel{
-		model:  newModel(80, 24),
+		model:  m,
 		cli:    c,
 		ctx:    ctx,
 		handle: handle,
