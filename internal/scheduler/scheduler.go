@@ -84,6 +84,29 @@ func (s *Scheduler) Load(ctx context.Context) error {
 	return nil
 }
 
+// Reload clears all registered cron entries and re-reads the schedules table.
+// Safe to call while the scheduler is running; used after /schedule CRUD.
+func (s *Scheduler) Reload(ctx context.Context) error {
+	s.clear()
+	return s.Load(ctx)
+}
+
+// clear removes every registered entry from cron and empties the bookkeeping maps.
+func (s *Scheduler) clear() {
+	s.mu.Lock()
+	ids := make([]cron.EntryID, 0, len(s.entries))
+	for _, id := range s.entries {
+		ids = append(ids, id)
+	}
+	s.jobs = make(map[string]func())
+	s.entries = make(map[string]cron.EntryID)
+	s.mu.Unlock()
+
+	for _, id := range ids {
+		s.cron.Remove(id)
+	}
+}
+
 // register validates and registers a single schedule. A bad cron spec is logged
 // and skipped; registration is idempotent per name (caller clears old entries).
 func (s *Scheduler) register(sc config.ScheduleConfig) {

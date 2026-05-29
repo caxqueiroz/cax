@@ -175,3 +175,45 @@ func TestLoadSkipsInvalidCron(t *testing.T) {
 		t.Fatal("valid cron schedule must be registered")
 	}
 }
+
+func TestReloadReflectsStoreChanges(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+
+	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
+		Name: "a", Cron: "0 0 * * *", Prompt: "pa", Channel: "cli", Enabled: true,
+	}); err != nil {
+		t.Fatalf("upsert a: %v", err)
+	}
+
+	s := New(st, func(context.Context, string, string) error { return nil })
+	if err := s.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := s.jobs["a"]; !ok {
+		t.Fatal("schedule a not registered after Load")
+	}
+
+	// Disable "a", add enabled "b".
+	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
+		Name: "a", Cron: "0 0 * * *", Prompt: "pa", Channel: "cli", Enabled: false,
+	}); err != nil {
+		t.Fatalf("disable a: %v", err)
+	}
+	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
+		Name: "b", Cron: "0 9 * * *", Prompt: "pb", Channel: "cli", Enabled: true,
+	}); err != nil {
+		t.Fatalf("upsert b: %v", err)
+	}
+
+	if err := s.Reload(ctx); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+
+	if _, ok := s.jobs["a"]; ok {
+		t.Fatal("disabled schedule a must be removed after Reload")
+	}
+	if _, ok := s.jobs["b"]; !ok {
+		t.Fatal("new schedule b must be registered after Reload")
+	}
+}
