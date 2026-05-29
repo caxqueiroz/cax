@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -55,8 +56,6 @@ func TestOpenDimMismatchFails(t *testing.T) {
 	}
 }
 
-// TODO(task3): enable after Tasks 4 (AppendMessage) & 6 (AddMemory) land.
-/*
 func TestStats(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "mem.db")
@@ -87,4 +86,3 @@ func TestStats(t *testing.T) {
 		t.Fatalf("DBSizeBytes = %d, want > 0 for a file-backed DB", stats.DBSizeBytes)
 	}
 }
-*/
