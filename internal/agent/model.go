@@ -6,9 +6,15 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"os"
 
 	"github.com/deepnoodle-ai/dive/llm"
+	openaiprovider "github.com/deepnoodle-ai/dive/providers/openai"
+
+	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/providers/bedrock"
 )
 
 var _ llm.StreamingLLM = (*fallbackLLM)(nil)
@@ -91,4 +97,33 @@ func isRetryable(err error) bool {
 		return true
 	}
 	return false
+}
+
+// BuildModel constructs each configured provider in order and wraps them in a
+// fallback chain. Provider order in config defines fallback priority.
+func BuildModel(cfg *config.Config) (llm.StreamingLLM, error) {
+	if cfg == nil || len(cfg.Providers) == 0 {
+		return nil, fmt.Errorf("agent: at least one provider is required")
+	}
+	providers := make([]llm.StreamingLLM, 0, len(cfg.Providers))
+	for i, pc := range cfg.Providers {
+		switch pc.Name {
+		case "bedrock":
+			providers = append(providers, bedrock.New(
+				bedrock.WithBaseURL(pc.BaseURL),
+				bedrock.WithModel(pc.Model),
+				bedrock.WithAPIKey(os.Getenv(pc.TokenEnv)),
+				bedrock.WithMaxTokens(pc.MaxTokens),
+			))
+		case "openai":
+			providers = append(providers, openaiprovider.New(
+				openaiprovider.WithModel(pc.Model),
+				openaiprovider.WithAPIKey(os.Getenv(pc.APIKeyEnv)),
+				openaiprovider.WithMaxTokens(pc.MaxTokens),
+			))
+		default:
+			return nil, fmt.Errorf("agent: providers[%d]: unknown provider %q (want bedrock|openai)", i, pc.Name)
+		}
+	}
+	return &fallbackLLM{providers: providers}, nil
 }

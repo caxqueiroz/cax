@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/caxqueiroz/czcli/internal/config"
 	"github.com/deepnoodle-ai/dive/llm"
 )
 
@@ -174,3 +176,48 @@ func (timeoutErr) Temporary() bool { return true }
 
 var _ net.Error = timeoutErr{}
 var _ = time.Second // keep time import used if trimmed later
+
+func TestBuildModelOrdersProviders(t *testing.T) {
+	t.Setenv("CZCLI_TEST_BEDROCK_KEY", "bk")
+	t.Setenv("CZCLI_TEST_OPENAI_KEY", "ok")
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "bedrock", Model: "us.anthropic.claude-x", BaseURL: "https://k/bedrock", TokenEnv: "CZCLI_TEST_BEDROCK_KEY", MaxTokens: 4096},
+			{Name: "openai", Model: "gpt-5.4", APIKeyEnv: "CZCLI_TEST_OPENAI_KEY", MaxTokens: 4096},
+		},
+	}
+	model, err := BuildModel(cfg)
+	if err != nil {
+		t.Fatalf("BuildModel: %v", err)
+	}
+	fb, ok := model.(*fallbackLLM)
+	if !ok {
+		t.Fatalf("BuildModel returned %T, want *fallbackLLM", model)
+	}
+	if len(fb.providers) != 2 {
+		t.Fatalf("providers len = %d, want 2", len(fb.providers))
+	}
+	if fb.providers[0].Name() != "bedrock" {
+		t.Errorf("providers[0] = %q, want bedrock", fb.providers[0].Name())
+	}
+	if fb.providers[1].Name() != "openai" {
+		t.Errorf("providers[1] = %q, want openai", fb.providers[1].Name())
+	}
+}
+
+func TestBuildModelRejectsUnknownProvider(t *testing.T) {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "cohere", Model: "c"}},
+	}
+	if _, err := BuildModel(cfg); err == nil {
+		t.Fatal("expected error for unknown provider, got nil")
+	}
+}
+
+func TestBuildModelRequiresProviders(t *testing.T) {
+	if _, err := BuildModel(&config.Config{}); err == nil {
+		t.Fatal("expected error for no providers, got nil")
+	}
+}
+
+var _ = os.Getenv // keep os imported for env-driven helpers above
