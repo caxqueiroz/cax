@@ -95,7 +95,3 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_ = msg
 	return m, nil
 }
-
-func (m model) View() string {
-	return ""
-}
