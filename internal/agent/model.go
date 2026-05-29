@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/deepnoodle-ai/dive/llm"
 	openaiprovider "github.com/deepnoodle-ai/dive/providers/openai"
@@ -17,12 +18,28 @@ import (
 	"github.com/caxqueiroz/czcli/internal/providers/bedrock"
 )
 
-var _ llm.StreamingLLM = (*fallbackLLM)(nil)
+var (
+	_ llm.StreamingLLM = (*fallbackLLM)(nil)
+	_ ActiveReporter   = (*fallbackLLM)(nil)
+)
+
+// ActiveReporter reports which provider in a fallback chain served the most
+// recent call. agent.Status type-asserts BuildModel's result to this interface
+// to populate channel.Status.Model / OnFallback / FallbackIndex; index 0 is the
+// primary provider.
+type ActiveReporter interface {
+	Active() (index int, name string)
+}
 
 // fallbackLLM wraps an ordered list of providers, advancing to the next on a
-// retryable error. If all fail, it returns the last error.
+// retryable error. If all fail, it returns the last error. It tracks the index
+// of the provider that served the most recent successful call so the dashboard
+// can show a fallback indicator.
 type fallbackLLM struct {
 	providers []llm.StreamingLLM
+
+	mu          sync.Mutex
+	activeIndex int
 }
 
 // Name returns the first provider's name, or "fallback" if empty.
@@ -33,13 +50,34 @@ func (f *fallbackLLM) Name() string {
 	return f.providers[0].Name()
 }
 
+// setActive records the index of the provider that served the most recent call.
+func (f *fallbackLLM) setActive(i int) {
+	f.mu.Lock()
+	f.activeIndex = i
+	f.mu.Unlock()
+}
+
+// Active returns the 0-based index and name of the provider that served the
+// most recent call; index 0 is the primary. With no providers it reports
+// (0, "fallback").
+func (f *fallbackLLM) Active() (int, string) {
+	f.mu.Lock()
+	i := f.activeIndex
+	f.mu.Unlock()
+	if i < 0 || i >= len(f.providers) {
+		return 0, "fallback"
+	}
+	return i, f.providers[i].Name()
+}
+
 // Generate tries each provider in order until one succeeds or a non-retryable
 // error occurs.
 func (f *fallbackLLM) Generate(ctx context.Context, opts ...llm.Option) (*llm.Response, error) {
 	var lastErr error
-	for _, p := range f.providers {
+	for i, p := range f.providers {
 		resp, err := p.Generate(ctx, opts...)
 		if err == nil {
+			f.setActive(i)
 			return resp, nil
 		}
 		lastErr = err
@@ -57,9 +95,10 @@ func (f *fallbackLLM) Generate(ctx context.Context, opts ...llm.Option) (*llm.Re
 // non-retryable error occurs.
 func (f *fallbackLLM) Stream(ctx context.Context, opts ...llm.Option) (llm.StreamIterator, error) {
 	var lastErr error
-	for _, p := range f.providers {
+	for i, p := range f.providers {
 		it, err := p.Stream(ctx, opts...)
 		if err == nil {
+			f.setActive(i)
 			return it, nil
 		}
 		lastErr = err
