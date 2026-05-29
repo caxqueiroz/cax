@@ -147,3 +147,31 @@ func TestJobRecoversPanic(t *testing.T) {
 	}()
 	job()
 }
+
+func TestLoadSkipsInvalidCron(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+
+	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
+		Name: "good", Cron: "*/15 * * * *", Prompt: "p", Channel: "cli", Enabled: true,
+	}); err != nil {
+		t.Fatalf("upsert good: %v", err)
+	}
+	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
+		Name: "bad", Cron: "not a cron expr", Prompt: "p", Channel: "cli", Enabled: true,
+	}); err != nil {
+		t.Fatalf("upsert bad: %v", err)
+	}
+
+	s := New(st, func(context.Context, string, string) error { return nil })
+	if err := s.Load(ctx); err != nil {
+		t.Fatalf("Load must not fail on invalid cron: %v", err)
+	}
+
+	if _, ok := s.jobs["bad"]; ok {
+		t.Fatal("invalid cron schedule must be skipped, not registered")
+	}
+	if _, ok := s.jobs["good"]; !ok {
+		t.Fatal("valid cron schedule must be registered")
+	}
+}
