@@ -39,7 +39,7 @@ func (p *Provider) Stream(ctx context.Context, opts ...llm.Option) (llm.StreamIt
 	}
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, &HTTPError{Status: resp.StatusCode, Body: string(raw)}
 	}
 	return &streamIterator{

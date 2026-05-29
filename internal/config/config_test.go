@@ -149,3 +149,19 @@ memory: {db_path: /tmp/czcli/memory.db}
 		t.Fatalf("resolved env value = %q, want sk-test-123", got)
 	}
 }
+
+func TestLoadExampleConfig(t *testing.T) {
+	cfg, err := Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("Load(config.example.yaml): %v", err)
+	}
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("providers = %d, want 2", len(cfg.Providers))
+	}
+	if cfg.Providers[0].Name != "bedrock" || cfg.Providers[1].Name != "openai" {
+		t.Fatalf("provider order = %q,%q, want bedrock,openai", cfg.Providers[0].Name, cfg.Providers[1].Name)
+	}
+	if cfg.Memory.TokenBudget != 8000 || cfg.Memory.RecallK != 5 {
+		t.Fatalf("memory defaults wrong: %+v", cfg.Memory)
+	}
+}

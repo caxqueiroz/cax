@@ -1,0 +1,50 @@
+# czcli example configuration.
+# Providers are tried in order; the first is primary, the rest are fallbacks.
+
+persona: "A concise, helpful personal assistant."
+
+providers:
+  # Bedrock Claude via KrakenD AI Gateway (no-op passthrough).
+  # Native Anthropic payload; the API key is sent in the x-api-key header.
+  - name: bedrock
+    model: us.anthropic.claude-opus-4-7
+    base_url: https://krakend.internal/bedrock
+    token_env: CZCLI_BEDROCK_API_KEY
+    max_tokens: 4096
+  # OpenAI fallback (dive built-in provider).
+  - name: openai
+    model: gpt-5.4
+    api_key_env: OPENAI_API_KEY
+    max_tokens: 4096
+
+embeddings:
+  provider: openai
+  model: text-embedding-3-small
+  dim: 1536
+  api_key_env: OPENAI_API_KEY
+  # Bedrock embeddings alternative:
+  # provider: bedrock
+  # model: amazon.titan-embed-text-v2:0
+  # dim: 1024
+  # base_url: https://krakend.internal/bedrock
+  # token_env: CZCLI_BEDROCK_API_KEY
+
+memory:
+  db_path: ~/.czcli/memory.db
+  token_budget: 8000
+  recall_k: 5
+
+tools:
+  web_enabled: true
+  files_enabled: true
+  bash_enabled: true
+  require_confirm: true
+
+subagents:
+  enabled: true
+  dir: .dive/agents
+
+mcp:
+  servers: []
+
+schedules: []

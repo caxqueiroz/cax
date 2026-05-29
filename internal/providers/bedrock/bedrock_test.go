@@ -188,7 +188,7 @@ func TestStreamDecodesEventStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
-	defer it.Close()
+	defer func() { _ = it.Close() }()
 
 	acc := llm.NewResponseAccumulator()
 	var types []llm.EventType
