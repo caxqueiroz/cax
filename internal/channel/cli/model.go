@@ -216,9 +216,3 @@ func removeFirst(xs []string, v string) []string {
 	}
 	return xs
 }
-
-// handleCommand is a temporary stub replaced by commands.go in Task 5.
-func (m model) handleCommand(line string) (string, bool) {
-	_ = line
-	return "", false
-}
