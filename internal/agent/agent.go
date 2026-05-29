@@ -98,10 +98,6 @@ func Build(ctx context.Context, cfg *config.Config, store *memory.Store, model l
 	return a, nil
 }
 
-// augmentTools is a temporary no-op replaced by subagents.go (Task 8), which
-// layers MCP and opt-in sub-agent tools onto a.tools.
-func (a *Assistant) augmentTools(_ context.Context, _ llm.StreamingLLM) error { return nil }
-
 // subagentToolName is the tool the Task tool exposes for spawning sub-agents.
 // Tracking its start/end events drives RunningSubagents.
 const subagentToolName = "Task"
