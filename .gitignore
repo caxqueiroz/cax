@@ -1,0 +1,17 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+
+# Local config / secrets
+.env
+config.yaml
+*.db
+*.db-shm
+*.db-wal
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
