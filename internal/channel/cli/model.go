@@ -128,6 +128,11 @@ func newModel(width, height int) model {
 	ti.Prompt = "> "
 	ti.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks"
 	ti.CharLimit = 4000
+	// Focus before the textinput is copied into the model value. Calling
+	// Focus() inside a value-receiver Init() mutates only the local copy and
+	// leaves the real input unfocused — which causes bubbles' textinput to
+	// drop every character key.
+	_ = ti.Focus()
 
 	vp := viewport.New(width, max(1, height-6))
 
@@ -140,7 +145,8 @@ func newModel(width, height int) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return m.input.Focus()
+	// textinput is already focused by newModel; start the cursor blink.
+	return textinput.Blink
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -23,6 +23,12 @@ func TestNewModelDefaults(t *testing.T) {
 	if m.streaming {
 		t.Errorf("model should not start in streaming state")
 	}
+	// Regression: the input must be focused so bubbles textinput accepts
+	// character keys. Focusing inside the value-receiver Init() mutates only
+	// a copy and leaves typing dead.
+	if !m.input.Focused() {
+		t.Errorf("input should be focused so character keys are accepted")
+	}
 }
 
 func TestInitReturnsCmd(t *testing.T) {
