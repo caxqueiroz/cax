@@ -176,27 +176,17 @@ func (m model) renderConversationBox(width, height int) string {
 	return indentBlock(borderWithTitle(padded, "conversation", boxOuter, col))
 }
 
-// renderCompletionDropdown builds a labeled rounded box titled `commands`
-// listing matches under the current input. The highlighted entry shows the
-// accent color; others are dim. Capped to 6 visible rows.
+// renderCompletionDropdown renders a flat list of matches under the message
+// box — pi.dev / claude-code style. No border, no title; just rows with a
+// `›` marker on the highlighted entry. Capped to 7 visible rows.
 func (m model) renderCompletionDropdown(width int) string {
 	s := styles()
-	col := borderColor()
-	boxOuter := width - 2*len(leftIndent)
-	if boxOuter < 16 {
-		boxOuter = 16
-	}
-	innerW := boxOuter - 2 - 2 // -2 border, -2 padding (1 each side)
-	if innerW < 1 {
-		innerW = 1
-	}
 
 	matches := m.completion.matches
 	visible := len(matches)
-	if visible > 6 {
-		visible = 6
+	if visible > 7 {
+		visible = 7
 	}
-	// Slide the visible window so the highlighted row stays in view.
 	start := 0
 	if m.completion.idx >= visible {
 		start = m.completion.idx - visible + 1
@@ -206,32 +196,38 @@ func (m model) renderCompletionDropdown(width int) string {
 		end = len(matches)
 	}
 
+	const nameCol = 16
 	var b strings.Builder
-	const nameCol = 16 // "  /permissions  " fits comfortably
 	for i := start; i < end; i++ {
 		e := matches[i]
-		prefix := "  "
-		nameStyle := s.fg
+		marker := "  "
+		nameStyle := s.dim
+		descStyle := s.dim
 		if i == m.completion.idx {
-			prefix = s.accent.Bold(true).Render("▸ ")
+			marker = s.accent.Bold(true).Render("› ")
 			nameStyle = s.accent.Bold(true)
+			descStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(theme.Active().Foreground))
 		}
 		name := nameStyle.Render("/" + e.name)
-		// Right-pad name to nameCol cells (lipgloss.Width counts cells, ignoring ANSI).
-		visW := lipgloss.Width(name) + lipgloss.Width(prefix)
+		visW := lipgloss.Width(marker) + lipgloss.Width(name)
 		pad := nameCol - visW
-		if pad < 1 {
-			pad = 1
+		if pad < 2 {
+			pad = 2
 		}
-		row := prefix + name + strings.Repeat(" ", pad) + s.dim.Render(e.desc)
+		row := leftIndent + marker + name + strings.Repeat(" ", pad) + descStyle.Render(e.desc)
 		b.WriteString(row)
 		if i < end-1 {
 			b.WriteByte('\n')
 		}
 	}
-	body := lipgloss.NewStyle().Width(innerW).Render(b.String())
-	padded := " " + body + " "
-	return indentBlock(borderWithTitle(padded, "commands", boxOuter, col))
+	if visible < len(matches) {
+		b.WriteByte('\n')
+		b.WriteString(leftIndent + s.dim.Render(fmt.Sprintf("  +%d more · ↑↓ navigate · tab to complete · esc to dismiss", len(matches)-visible)))
+	} else {
+		b.WriteByte('\n')
+		b.WriteString(leftIndent + s.dim.Render("  ↑↓ navigate · tab to complete · esc to dismiss"))
+	}
+	return b.String()
 }
 
 // renderMessageBox wraps the textarea in a labeled rounded box titled
@@ -506,23 +502,13 @@ func (m model) View() string {
 	welcome := m.renderWelcomeBlock(width)
 
 	parts := []string{welcome, "", conv, "", status, "", message}
-	if hint != "" {
-		parts = append(parts, hint)
-	}
-
-	// Slash-command dropdown: inserted between status and message box when
-	// non-empty. layout math (in resizeInput) already reserved its rows.
+	// Footer: claude-code / pi.dev style dropdown sits BELOW the input when
+	// the user is composing a slash command. When no dropdown, the hint line
+	// shows the keybind reminders.
 	if len(m.completion.matches) > 0 {
-		dropdown := m.renderCompletionDropdown(width)
-		// Insert dropdown just before "message".
-		newParts := make([]string, 0, len(parts)+1)
-		for _, p := range parts {
-			if p == message {
-				newParts = append(newParts, dropdown)
-			}
-			newParts = append(newParts, p)
-		}
-		parts = newParts
+		parts = append(parts, m.renderCompletionDropdown(width))
+	} else if hint != "" {
+		parts = append(parts, hint)
 	}
 
 	if m.helpOpen {

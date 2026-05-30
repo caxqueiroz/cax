@@ -561,22 +561,25 @@ func (m *model) resizeInput() {
 	if m.input.Height() != h {
 		m.input.SetHeight(h)
 	}
-	// Layout (header removed): blank(1) + status(1) + blank(1) + msg-border(2) = 5.
-	fixed := 5
+	// Layout: welcome(8) + blank(1) + conv + blank(1) + status(1) + blank(1)
+	// + message(h+2) + footer. footer = max(hint, dropdown), where hint = 1
+	// when terminal is tall enough, and dropdown = visible matches + 1
+	// (help text) when the slash menu is open.
+	fixed := 8 + 1 + 1 + 1 + 2 // welcome + blank + status + blank + msg-border
+	footer := 0
 	if m.height >= minHintHeight {
-		fixed++ // hint line
+		footer = 1 // hint line baseline
 	}
-	// Welcome card is now the permanent top banner: 5 art + 2 border + 1
-	// trailing blank = 8 rows always reserved.
-	fixed += 8
-	// Completion dropdown (up to 6 rows + 2 border = 8) sits above the message
-	// box while the user is typing a slash command.
 	if vis := len(m.completion.matches); vis > 0 {
-		if vis > 6 {
-			vis = 6
+		if vis > 7 {
+			vis = 7
 		}
-		fixed += vis + 2
+		dropdownH := vis + 1 // matches + one help-text row
+		if dropdownH > footer {
+			footer = dropdownH
+		}
 	}
+	fixed += footer
 	boxOuter := m.height - fixed - h
 	if boxOuter < 4 {
 		boxOuter = 4
