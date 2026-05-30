@@ -195,6 +195,10 @@ func (pm *programModel) Init() tea.Cmd {
 	return tea.Batch(
 		pm.model.Init(),
 		tea.Tick(pm.cli.statusInterval, func(time.Time) tea.Msg { return tickMsg{} }),
+		// Tell the terminal emulator the window/tab is "cax" regardless of
+		// the cwd the binary was launched from (iTerm/macOS Terminal would
+		// otherwise fall back to the cwd basename).
+		tea.SetWindowTitle("cax"),
 	)
 }
 
