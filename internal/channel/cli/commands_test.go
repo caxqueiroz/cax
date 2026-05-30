@@ -275,7 +275,7 @@ func TestReloadWithoutBackend(t *testing.T) {
 func TestRenderHelpOverlayContents(t *testing.T) {
 	m := newModel(80, 24)
 	out := m.renderHelpOverlay()
-	for _, want := range []string{"Enter", "Alt+Enter", "Ctrl+L", "Ctrl+R", "Ctrl+T", "Ctrl+/", "/reload", "/quit", "/new", "create_skill"} {
+	for _, want := range []string{"Enter", "Alt+Enter", "Ctrl+L", "Ctrl+R", "Ctrl+T", "Ctrl+/", "/reload", "/quit", "/new", "/about", "create_skill"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help overlay missing %q, got:\n%s", want, out)
 		}
@@ -374,5 +374,28 @@ func TestHandleCommand_CancelWithoutWizard(t *testing.T) {
 	out, _, _ := m.handleCommand("/cancel")
 	if !strings.Contains(out, "nothing to cancel") {
 		t.Fatalf("expected 'nothing to cancel' hint; got: %q", out)
+	}
+}
+
+// TestCmdAbout asserts /about returns the welcome ASCII art, the tagline,
+// and the active theme name.
+func TestCmdAbout(t *testing.T) {
+	theme.LoadBuiltins()
+	dracula, _ := theme.Get("dracula")
+	theme.Set(dracula)
+
+	m := newModel(80, 24)
+	out, quit, _ := m.handleCommand("/about")
+	if quit {
+		t.Fatalf("/about should not quit")
+	}
+	if !strings.Contains(out, "╭─╮") {
+		t.Fatalf("/about missing welcome art glyph: %q", out)
+	}
+	if !strings.Contains(out, "personal AI assistant") {
+		t.Fatalf("/about missing tagline: %q", out)
+	}
+	if !strings.Contains(out, "dracula") {
+		t.Fatalf("/about missing active theme name: %q", out)
 	}
 }
