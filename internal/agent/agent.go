@@ -51,6 +51,9 @@ type Assistant struct {
 
 	mu      sync.Mutex
 	running map[string]int // running sub-agent task descriptions -> ref count
+
+	sessionMu     sync.RWMutex
+	lastSessionID string // most recent session id seen by Handle; powers the buffer gauge
 }
 
 // SetDialog installs a custom dive.Dialog used by the permission gate. The
@@ -239,6 +242,13 @@ func (a *Assistant) Handle(ctx context.Context, msg channel.Message, emit channe
 	if emit == nil {
 		emit = func(channel.StreamEvent) {}
 	}
+	// Record the current session so Status() can query its working-window
+	// token count to populate the buffer gauge.
+	if msg.SessionID != "" {
+		a.sessionMu.Lock()
+		a.lastSessionID = msg.SessionID
+		a.sessionMu.Unlock()
+	}
 	var mu sync.Mutex // EventCallback may fire from multiple goroutines.
 
 	callback := func(_ context.Context, item *dive.ResponseItem) error {
@@ -385,6 +395,22 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 	}
 	if cwd, err := os.Getwd(); err == nil {
 		st.CWD = cwd
+	}
+	// Populate the working-window token count for the buffer gauge by
+	// loading the recent message window of the most-recent session and
+	// summing its per-message token counts. Best-effort: empty session id
+	// or store errors silently keep ContextTokens at 0.
+	a.sessionMu.RLock()
+	sid := a.lastSessionID
+	a.sessionMu.RUnlock()
+	if sid != "" {
+		if _, msgs, err := a.store.LoadWindow(ctx, sid, st.ContextBudget); err == nil {
+			total := 0
+			for _, m := range msgs {
+				total += m.Tokens
+			}
+			st.ContextTokens = total
+		}
 	}
 	if roll, err := a.store.UsageRollups(ctx); err == nil {
 		st.Usage = channel.UsageRollup{
