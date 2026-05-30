@@ -19,13 +19,9 @@ const welcomeArt = ` ____  ____ ___  _
 // `go build -ldflags "-X github.com/caxqueiroz/cax/internal/channel/cli.Version=1.2.3"`.
 var Version = "dev"
 
-// welcomeHint sits below the user info in the welcome card; one-line summary
-// of the fastest things a brand-new user can try.
-const welcomeHint = "type a message · /help · /theme · /new · /code"
-
 // renderWelcomeBlock builds the labeled welcome card: art on the left,
-// per-session greeting (username + local date/time) and version on the right,
-// followed by the quick-start hint.
+// per-session greeting (username + local date/time) and version centered
+// vertically alongside the art.
 func (m model) renderWelcomeBlock(width int) string {
 	s := styles()
 	artStyled := s.accent.Render(welcomeArt)
@@ -38,12 +34,11 @@ func (m model) renderWelcomeBlock(width int) string {
 
 	greet := s.fg.Bold(true).Render("hello, "+uname) + s.dim.Render("  ·  "+when)
 	version := s.dim.Render("cax v" + Version)
-	hint := s.dim.Render(welcomeHint)
 
-	// Info column (3 rows) is shorter than the art (5 rows). Joining at
-	// lipgloss.Center makes lipgloss pad above and below the info block so
-	// the greeting sits at the vertical mid-line of the art.
-	infoBlock := lipgloss.JoinVertical(lipgloss.Left, greet, version, hint)
+	// Info column (2 rows) is shorter than the art (5 rows). Joining at
+	// lipgloss.Center pads above/below so the lines sit at the vertical
+	// mid-line of the art.
+	infoBlock := lipgloss.JoinVertical(lipgloss.Left, greet, version)
 	body := lipgloss.JoinHorizontal(lipgloss.Center, artStyled, "   ", infoBlock)
 
 	inner := width - 4 // 2 indent + 2 border
