@@ -80,6 +80,36 @@ func resultText(r *dive.ToolResult) string {
 	return sb.String()
 }
 
+func TestLSPReferences(t *testing.T) {
+	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+		switch req.Method() {
+		case protocol.MethodInitialize:
+			return reply(ctx, &protocol.InitializeResult{}, nil)
+		case protocol.MethodInitialized, protocol.MethodTextDocumentDidOpen:
+			return reply(ctx, nil, nil)
+		case protocol.MethodTextDocumentReferences:
+			var p protocol.ReferenceParams
+			_ = json.Unmarshal(req.Params(), &p)
+			if !p.Context.IncludeDeclaration {
+				t.Errorf("expected IncludeDeclaration=true")
+			}
+			locs := []protocol.Location{
+				{URI: uri.File("/tmp/a.go"), Range: protocol.Range{Start: protocol.Position{Line: 1}, End: protocol.Position{Line: 1, Character: 3}}},
+				{URI: uri.File("/tmp/b.go"), Range: protocol.Range{Start: protocol.Position{Line: 5}, End: protocol.Position{Line: 5, Character: 7}}},
+			}
+			return reply(ctx, locs, nil)
+		}
+		return reply(ctx, nil, nil)
+	}
+	m, file := setupManagerWithFake(t, handler)
+	tool := toolByName(m.Tools(), "lsp_references")
+	res := callTool(t, tool, map[string]any{"file": file, "line": 0, "character": 0})
+	text := resultText(res)
+	if !strings.Contains(text, "/tmp/a.go") || !strings.Contains(text, "/tmp/b.go") {
+		t.Fatalf("references text missing locations: %q", text)
+	}
+}
+
 func TestLSPDefinition(t *testing.T) {
 	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		switch req.Method() {

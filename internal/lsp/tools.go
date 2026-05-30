@@ -98,8 +98,35 @@ func (m *Manager) definitionTool() dive.Tool {
 	)
 }
 
-// Placeholders for the other five tools; real bodies arrive in Tasks 6-10.
-func (m *Manager) referencesTool() dive.Tool      { return placeholderTool("lsp_references") }
+func (m *Manager) referencesTool() dive.Tool {
+	return dive.FuncTool("lsp_references",
+		"List references for the symbol at file:line:character (includes declaration).",
+		func(ctx context.Context, args *positionArgs) (*dive.ToolResult, error) {
+			s, lang, ok := m.routeServer(args.File)
+			if !ok {
+				return dive.NewToolResultText(noServerMessage(args.File, lang)), nil
+			}
+			rctx, cancel := context.WithTimeout(ctx, requestTimeout)
+			defer cancel()
+			if err := m.ensureOpen(rctx, s, args.File); err != nil {
+				return dive.NewToolResultText(fmt.Sprintf("lsp_references: open: %v", err)), nil
+			}
+			var locs []protocol.Location
+			if _, err := s.conn.Call(rctx, protocol.MethodTextDocumentReferences, &protocol.ReferenceParams{
+				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+					TextDocument: protocol.TextDocumentIdentifier{URI: uri.File(args.File)},
+					Position:     protocol.Position{Line: args.Line, Character: args.Character},
+				},
+				Context: protocol.ReferenceContext{IncludeDeclaration: true},
+			}, &locs); err != nil {
+				return dive.NewToolResultText(fmt.Sprintf("lsp_references: call: %v", err)), nil
+			}
+			return dive.NewToolResultText(formatLocations("references", locs)), nil
+		},
+	)
+}
+
+// Placeholders for the remaining tools; real bodies arrive in Tasks 7-10.
 func (m *Manager) hoverTool() dive.Tool           { return placeholderTool("lsp_hover") }
 func (m *Manager) documentSymbolsTool() dive.Tool { return placeholderTool("lsp_document_symbols") }
 func (m *Manager) workspaceSymbolsTool() dive.Tool {
