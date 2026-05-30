@@ -10,6 +10,7 @@ import (
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/hooks"
 )
 
 // scheduleBackend is the store-backed CRUD surface the /schedule command drives.
@@ -113,13 +114,19 @@ type model struct {
 	sched   scheduleBackend // optional; nil when the scheduler isn't wired
 	plugins pluginBackend   // optional; nil when /plugin is not wired
 
+	// hookEntries is the typed snapshot of plugin-declared hooks the /hooks
+	// command renders. Populated via WithHookEntries on CLI start; nil when
+	// no plugin contributes hooks. Status.HookCount remains the source of
+	// truth for the bottom-bar counter.
+	hookEntries []hooks.Entry
+
 	ready bool // viewport sized at least once
 }
 
 func newModel(width, height int) model {
 	ti := textinput.New()
 	ti.Prompt = "> "
-	ti.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp"
+	ti.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks"
 	ti.CharLimit = 4000
 
 	vp := viewport.New(width, max(1, height-6))

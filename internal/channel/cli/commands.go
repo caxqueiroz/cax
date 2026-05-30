@@ -47,8 +47,10 @@ func (m model) handleCommand(line string) (string, bool) {
 		return m.cmdLSP(), false
 	case "plugin":
 		return m.cmdPlugin(args), false
+	case "hooks":
+		return m.cmdHooks(), false
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin", name), false
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks", name), false
 	}
 }
 
@@ -463,6 +465,38 @@ func (m model) pluginRemove(ctx context.Context, args []string) string {
 		return fmt.Sprintf("plugin %q removed but rebuild failed: %v", name, err)
 	}
 	return fmt.Sprintf("plugin %q removed", name)
+}
+
+// cmdHooks renders the active plugin-declared hook entries: event, matcher
+// (tool / command substring), source plugin, and per-entry timeout. Falls
+// back to a hint pointing at .claude-plugin/hooks.json when nothing is wired.
+func (m model) cmdHooks() string {
+	if !m.hasStatus || m.status.HookCount == 0 || len(m.hookEntries) == 0 {
+		return "no hooks registered (configure via plugin .claude-plugin/hooks.json)"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "hooks (%d):", len(m.hookEntries))
+	for _, e := range m.hookEntries {
+		matcher := "*"
+		switch {
+		case e.Matcher.Tool != "" && e.Matcher.Command != "":
+			matcher = fmt.Sprintf("tool=%s command~=%q", e.Matcher.Tool, e.Matcher.Command)
+		case e.Matcher.Tool != "":
+			matcher = fmt.Sprintf("tool=%s", e.Matcher.Tool)
+		case e.Matcher.Command != "":
+			matcher = fmt.Sprintf("command~=%q", e.Matcher.Command)
+		}
+		timeout := e.TimeoutSeconds
+		if timeout <= 0 {
+			timeout = 5
+		}
+		source := e.Source
+		if source == "" {
+			source = "user"
+		}
+		fmt.Fprintf(&b, "\n  %-16s %-32s [%s] %ds", string(e.Event), matcher, source, timeout)
+	}
+	return b.String()
 }
 
 // inferPluginName extracts a sensible default from a git URL: the last path

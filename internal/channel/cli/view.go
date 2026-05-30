@@ -105,6 +105,9 @@ func (m model) renderBottomBar() string {
 	if s.LSPServerCount > 0 {
 		fmt.Fprintf(&extras, " · 🧠%d", s.LSPServerCount)
 	}
+	if s.HookCount > 0 {
+		fmt.Fprintf(&extras, " · ⚓%d", s.HookCount)
+	}
 
 	line := fmt.Sprintf("tok 1d%s 1w%s 1m%s·mem%s·🔧%d 🤖%d%s",
 		humanizeTokens(day),

@@ -5,7 +5,38 @@ import (
 	"testing"
 
 	"github.com/caxqueiroz/czcli/internal/channel"
+	"github.com/caxqueiroz/czcli/internal/hooks"
 )
+
+func TestCmdHooksEmpty(t *testing.T) {
+	m := model{
+		hasStatus: true,
+		status:    channel.Status{HookCount: 0},
+	}
+	out := m.cmdHooks()
+	if !strings.Contains(out, "no hooks") {
+		t.Fatalf("expected 'no hooks' on empty list, got %q", out)
+	}
+}
+
+func TestCmdHooksListsEntries(t *testing.T) {
+	m := model{
+		hasStatus: true,
+		status:    channel.Status{HookCount: 2},
+		hookEntries: []hooks.Entry{
+			{Event: hooks.EventPreToolUse, Matcher: hooks.Matcher{Tool: "Bash"},
+				Command: []string{"/bin/sh", "-c", "..."}, TimeoutSeconds: 5, Source: "policy"},
+			{Event: hooks.EventStop, Command: []string{"/bin/sh", "-c", "..."},
+				TimeoutSeconds: 5, Source: "audit"},
+		},
+	}
+	out := m.cmdHooks()
+	for _, want := range []string{"PreToolUse", "Bash", "policy", "Stop", "audit", "5s"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("/hooks output missing %q, got:\n%s", want, out)
+		}
+	}
+}
 
 func TestParseCommand(t *testing.T) {
 	cases := []struct {

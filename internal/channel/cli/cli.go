@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/caxqueiroz/czcli/internal/channel"
+	"github.com/caxqueiroz/czcli/internal/hooks"
 )
 
 // CLI satisfies channel.Channel.
@@ -23,6 +24,7 @@ type CLI struct {
 	statusInterval time.Duration
 	sched          scheduleBackend
 	plugins        pluginBackend
+	hookEntries    []hooks.Entry
 }
 
 // Option configures a CLI.
@@ -46,6 +48,13 @@ func WithScheduler(b scheduleBackend) Option {
 // When unset, /plugin reports that plugins are not available.
 func WithPlugins(b pluginBackend) Option {
 	return func(c *CLI) { c.plugins = b }
+}
+
+// WithHookEntries wires the typed snapshot of plugin-declared hooks the
+// /hooks command renders. The caller (cmd/czcli/main.go) re-computes this
+// snapshot on every /plugin mutation by reading the dispatcher's Entries().
+func WithHookEntries(entries []hooks.Entry) Option {
+	return func(c *CLI) { c.hookEntries = entries }
 }
 
 // New builds a CLI channel with sensible defaults.
@@ -73,6 +82,7 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	m := newModel(80, 24)
 	m.sched = c.sched
 	m.plugins = c.plugins
+	m.hookEntries = c.hookEntries
 	pm := &programModel{
 		model:  m,
 		cli:    c,
