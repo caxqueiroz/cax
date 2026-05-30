@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/caxqueiroz/czcli/internal/channel"
+	"github.com/caxqueiroz/cax/internal/channel"
 )
 
 func TestNewCLIDefaults(t *testing.T) {

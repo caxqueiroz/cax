@@ -17,7 +17,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 // Manifest is the parsed .claude-plugin/plugin.json. Only `name` is required;

@@ -13,12 +13,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/caxqueiroz/czcli/internal/channel"
-	"github.com/caxqueiroz/czcli/internal/config"
-	"github.com/caxqueiroz/czcli/internal/creator"
-	"github.com/caxqueiroz/czcli/internal/hooks"
-	"github.com/caxqueiroz/czcli/internal/plugins"
-	"github.com/caxqueiroz/czcli/internal/theme"
+	"github.com/caxqueiroz/cax/internal/channel"
+	"github.com/caxqueiroz/cax/internal/config"
+	"github.com/caxqueiroz/cax/internal/creator"
+	"github.com/caxqueiroz/cax/internal/hooks"
+	"github.com/caxqueiroz/cax/internal/plugins"
+	"github.com/caxqueiroz/cax/internal/theme"
 )
 
 // scheduleBackend is the store-backed CRUD surface the /schedule command drives.

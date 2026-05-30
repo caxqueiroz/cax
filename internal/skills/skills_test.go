@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 func writeSkill(t *testing.T, dir, name, description string) {

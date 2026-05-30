@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 func buildWithSubagents(t *testing.T, dir string) *Assistant {

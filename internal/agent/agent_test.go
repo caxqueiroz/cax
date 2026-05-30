@@ -8,12 +8,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/caxqueiroz/czcli/internal/channel"
-	"github.com/caxqueiroz/czcli/internal/config"
-	"github.com/caxqueiroz/czcli/internal/lsp"
-	"github.com/caxqueiroz/czcli/internal/mcp"
-	"github.com/caxqueiroz/czcli/internal/memory"
-	"github.com/caxqueiroz/czcli/internal/skills"
+	"github.com/caxqueiroz/cax/internal/channel"
+	"github.com/caxqueiroz/cax/internal/config"
+	"github.com/caxqueiroz/cax/internal/lsp"
+	"github.com/caxqueiroz/cax/internal/mcp"
+	"github.com/caxqueiroz/cax/internal/memory"
+	"github.com/caxqueiroz/cax/internal/skills"
 	"github.com/deepnoodle-ai/dive"
 )
 

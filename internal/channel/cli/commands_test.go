@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/caxqueiroz/czcli/internal/channel"
-	"github.com/caxqueiroz/czcli/internal/creator"
-	"github.com/caxqueiroz/czcli/internal/hooks"
-	"github.com/caxqueiroz/czcli/internal/theme"
+	"github.com/caxqueiroz/cax/internal/channel"
+	"github.com/caxqueiroz/cax/internal/creator"
+	"github.com/caxqueiroz/cax/internal/hooks"
+	"github.com/caxqueiroz/cax/internal/theme"
 )
 
 func TestCmdThemeListAndSet(t *testing.T) {

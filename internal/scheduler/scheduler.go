@@ -13,8 +13,8 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"github.com/caxqueiroz/czcli/internal/config"
-	"github.com/caxqueiroz/czcli/internal/memory"
+	"github.com/caxqueiroz/cax/internal/config"
+	"github.com/caxqueiroz/cax/internal/memory"
 )
 
 // RunFunc executes a scheduled prompt and routes its output to the named

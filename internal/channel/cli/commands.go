@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/caxqueiroz/czcli/internal/config"
-	"github.com/caxqueiroz/czcli/internal/creator"
-	"github.com/caxqueiroz/czcli/internal/theme"
+	"github.com/caxqueiroz/cax/internal/config"
+	"github.com/caxqueiroz/cax/internal/creator"
+	"github.com/caxqueiroz/cax/internal/theme"
 )
 
 // parseCommand splits "/name args..." into ("name", "args"). The leading slash

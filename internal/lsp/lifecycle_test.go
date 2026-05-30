@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
 )

@@ -9,8 +9,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/caxqueiroz/czcli/internal/config"
-	"github.com/caxqueiroz/czcli/internal/memory"
+	"github.com/caxqueiroz/cax/internal/config"
+	"github.com/caxqueiroz/cax/internal/memory"
 )
 
 func TestJobRecordsLastRun(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/caxqueiroz/czcli/internal/config"
-	"github.com/caxqueiroz/czcli/internal/hooks"
-	"github.com/caxqueiroz/czcli/internal/memory"
+	"github.com/caxqueiroz/cax/internal/config"
+	"github.com/caxqueiroz/cax/internal/hooks"
+	"github.com/caxqueiroz/cax/internal/memory"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
 )

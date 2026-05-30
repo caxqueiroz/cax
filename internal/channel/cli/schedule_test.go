@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 // fakeSchedules is an in-memory scheduleBackend for testing /schedule CRUD.

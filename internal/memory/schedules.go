@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 // ListSchedules returns all persisted schedules ordered by name.

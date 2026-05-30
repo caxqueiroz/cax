@@ -5,7 +5,7 @@ import (
 
 	"github.com/charmbracelet/glamour"
 
-	"github.com/caxqueiroz/czcli/internal/theme"
+	"github.com/caxqueiroz/cax/internal/theme"
 )
 
 // knownGlamourStyles enumerates the built-in glamour style names accepted

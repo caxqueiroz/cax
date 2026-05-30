@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/caxqueiroz/czcli/internal/channel"
-	"github.com/caxqueiroz/czcli/internal/theme"
+	"github.com/caxqueiroz/cax/internal/channel"
+	"github.com/caxqueiroz/cax/internal/theme"
 )
 
 func TestRenderConversationRendersAssistantAsMarkdown(t *testing.T) {

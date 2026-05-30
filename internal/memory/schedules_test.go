@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 func TestUpsertAndListSchedules(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"     // registers the "sqlite" database/sql driver
 	_ "modernc.org/sqlite/vec" // registers the vec0 virtual table + vec_* functions
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 // Role is a message author role.

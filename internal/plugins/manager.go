@@ -9,7 +9,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 // Contributions is the flat aggregate of every enabled plugin's contributed

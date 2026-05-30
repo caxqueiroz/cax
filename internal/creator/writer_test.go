@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/caxqueiroz/czcli/internal/plugins"
+	"github.com/caxqueiroz/cax/internal/plugins"
 )
 
 func TestValidateName(t *testing.T) {

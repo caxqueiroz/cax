@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/caxqueiroz/czcli/internal/memory"
+	"github.com/caxqueiroz/cax/internal/memory"
 	"github.com/deepnoodle-ai/dive"
 )
 

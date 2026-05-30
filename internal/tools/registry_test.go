@@ -3,7 +3,7 @@ package tools
 import (
 	"testing"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 func toolNames(t *testing.T, cfg config.ToolsConfig) map[string]bool {

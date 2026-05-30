@@ -14,8 +14,8 @@ import (
 	"github.com/deepnoodle-ai/dive/llm"
 	openaiprovider "github.com/deepnoodle-ai/dive/providers/openai"
 
-	"github.com/caxqueiroz/czcli/internal/config"
-	"github.com/caxqueiroz/czcli/internal/providers/bedrock"
+	"github.com/caxqueiroz/cax/internal/config"
+	"github.com/caxqueiroz/cax/internal/providers/bedrock"
 )
 
 var (

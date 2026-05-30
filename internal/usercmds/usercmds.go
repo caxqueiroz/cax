@@ -16,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/caxqueiroz/czcli/internal/plugins"
+	"github.com/caxqueiroz/cax/internal/plugins"
 )
 
 // Load scans each directory in dirs for *.md files and returns one

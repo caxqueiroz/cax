@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 // Embedder turns text into fixed-dimension vectors. Implementations are pluggable.

@@ -1,4 +1,4 @@
-module github.com/caxqueiroz/czcli
+module github.com/caxqueiroz/cax
 
 go 1.25.0
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/caxqueiroz/czcli/internal/theme"
+	"github.com/caxqueiroz/cax/internal/theme"
 )
 
 func TestRenderMarkdownNonEmpty(t *testing.T) {

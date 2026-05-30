@@ -3,9 +3,9 @@ version: '3'
 
 vars:
   DIST: dist
-  BIN: dist/czcli
+  BIN: dist/cax
   PKG: ./...
-  CMD: ./cmd/czcli
+  CMD: ./cmd/cax
   COVERAGE_FILE: coverage.out
   COVERAGE_HTML: coverage.html
 
@@ -17,18 +17,18 @@ tasks:
     silent: true
 
   build:
-    desc: Build the czcli binary into ./dist/czcli
+    desc: Build the cax binary into ./dist/cax
     cmds:
       - mkdir -p {{.DIST}}
       - go build -o {{.BIN}} {{.CMD}}
 
   run:
-    desc: 'Run czcli (pass args after --: task run -- --flag)'
+    desc: 'Run cax (pass args after --: task run -- --flag)'
     cmds:
       - go run {{.CMD}} {{.CLI_ARGS}}
 
   install:
-    desc: Install czcli into $GOBIN / $GOPATH/bin
+    desc: Install cax into $GOBIN / $GOPATH/bin
     cmds:
       - go install {{.CMD}}
 

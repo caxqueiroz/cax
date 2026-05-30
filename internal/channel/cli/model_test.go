@@ -6,9 +6,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/caxqueiroz/czcli/internal/channel"
-	"github.com/caxqueiroz/czcli/internal/creator"
-	"github.com/caxqueiroz/czcli/internal/theme"
+	"github.com/caxqueiroz/cax/internal/channel"
+	"github.com/caxqueiroz/cax/internal/creator"
+	"github.com/caxqueiroz/cax/internal/theme"
 )
 
 func TestNewModelDefaults(t *testing.T) {

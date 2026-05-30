@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/cax/internal/config"
 	"github.com/deepnoodle-ai/dive"
 	divemcp "github.com/deepnoodle-ai/dive/experimental/mcp"
 )
