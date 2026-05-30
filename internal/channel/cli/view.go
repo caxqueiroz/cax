@@ -14,6 +14,13 @@ const (
 	gaugeRedPct   = 0.90
 	gaugeCells    = 8
 	leftIndent    = "  " // global 2-space indent
+
+	// minFullHeight is the minimum terminal height that lets every boxed
+	// region render readably (header 3 + blank 1 + conv min 4 + blank 1 +
+	// status 1 + blank 1 + message 3 = 14). Below this, we begin dropping
+	// regions; below minBoxedHeight we fall back to the plain-line layout.
+	minBoxedHeight = 9
+	minHintHeight  = 14
 )
 
 // themedStyles is the per-render bag of lipgloss styles built from the active
@@ -59,8 +66,197 @@ func styles() themedStyles {
 	}
 }
 
-// renderTopBar: "  opus ✓                  hist 6.1k/8k ▓▓▓░ 76% ⚠".
-func (m model) renderTopBar() string {
+// borderWithTitle wraps content in a rounded box whose top border carries
+// a label, like `╭─ conversation ────────────╮`. The bottom/left/right are
+// the standard rounded border; the top is composed manually from the
+// rounded-border runes so the title sits at column 3 of the top run.
+//
+// width is the total outer width of the box (border inclusive). The caller
+// is responsible for sizing inner content to width - 2 (border) - 2*padX
+// (lipgloss padding) before passing it in — or via the returned box style's
+// padding settings, which this helper applies internally.
+func borderWithTitle(content, title string, width int, color lipgloss.Color) string {
+	if width < 4 {
+		width = 4
+	}
+	rb := lipgloss.RoundedBorder()
+	// Body: rounded border with the top side disabled. Padding inside the
+	// box is handled by the caller — we want the helper to compose just the
+	// labeled border, so it composes cleanly with viewports/textareas of
+	// known inner widths.
+	body := lipgloss.NewStyle().
+		Border(rb).
+		BorderTop(false).
+		BorderForeground(color).
+		Width(width - 2). // -2 to account for left/right border cells
+		Render(content)
+
+	// Top: `╭` + `─ <title> ` + fill `─` + `╮`. When title is empty, render
+	// a plain top line: `╭` + `─×(width-2)` + `╮`.
+	top := composeTitledTop(title, width, rb, color)
+	return top + "\n" + body
+}
+
+// composeTitledTop builds the labeled top border line. It is exported via
+// borderWithTitle but kept separate so view_test.go can hit the title splice
+// logic directly without rendering a full box.
+func composeTitledTop(title string, width int, rb lipgloss.Border, color lipgloss.Color) string {
+	if width < 4 {
+		width = 4
+	}
+	borderStyle := lipgloss.NewStyle().Foreground(color)
+	inner := width - 2 // space between corner runes
+	var middle string
+	if strings.TrimSpace(title) == "" {
+		middle = strings.Repeat(rb.Top, inner)
+	} else {
+		label := " " + strings.TrimSpace(title) + " "
+		// "─ <title> " starts at col 2 of the top run (one Top rune of
+		// padding before the label). Total runes used by `─` + label = 1 +
+		// len(label). The remainder fills with `─`.
+		lead := rb.Top + label
+		leadLen := lipgloss.Width(lead)
+		if leadLen >= inner {
+			// Title too long for this width: truncate to fit, keep the
+			// leading rune so the box still reads as a label.
+			middle = lead
+			if leadLen > inner {
+				// Best-effort: drop trailing runes off the label.
+				runes := []rune(lead)
+				if inner < len(runes) {
+					middle = string(runes[:inner])
+				}
+			}
+		} else {
+			middle = lead + strings.Repeat(rb.Top, inner-leadLen)
+		}
+	}
+	return borderStyle.Render(rb.TopLeft + middle + rb.TopRight)
+}
+
+// renderHeader composes the branded header box: `◆ czcli` on the left,
+// dim `personal AI assistant` tagline centered, and the active theme name
+// accented on the right. Width is the full terminal width (the box's outer
+// box matches width - 4 to honor the global 2-space indent).
+func (m model) renderHeader(width int) string {
+	s := styles()
+	col := borderColor()
+
+	boxOuter := width - 2*len(leftIndent)
+	if boxOuter < 16 {
+		boxOuter = 16
+	}
+	inner := boxOuter - 2 - 2 // -2 border, -2 padding (1 each side)
+	if inner < 1 {
+		inner = 1
+	}
+
+	left := s.accent.Render("◆") + " " + s.fg.Bold(true).Render("czcli")
+	right := s.accent.Render(theme.Active().Name)
+	leftW := lipgloss.Width(left)
+	rightW := lipgloss.Width(right)
+	mid := "personal AI assistant"
+	midW := inner - leftW - rightW
+	if midW < 1 {
+		midW = 1
+	}
+	midRendered := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.Active().Dim)).
+		Width(midW).
+		Align(lipgloss.Center).
+		Render(mid)
+
+	row := lipgloss.JoinHorizontal(lipgloss.Top, left, midRendered, right)
+	// Pad row to inner width so the right edge sits flush against the border.
+	row = lipgloss.NewStyle().Width(inner).Render(row)
+	// Apply horizontal padding by composing a one-cell space on each side.
+	padded := " " + row + " "
+	return indentBlock(borderWithTitle(padded, "", boxOuter, col))
+}
+
+// renderConversationBox wraps the viewport content in a labeled rounded box
+// titled `conversation`. width is total terminal width; height is the
+// number of rows allocated to the box (border + padding + content).
+func (m model) renderConversationBox(width, height int) string {
+	col := borderColor()
+	boxOuter := width - 2*len(leftIndent)
+	if boxOuter < 16 {
+		boxOuter = 16
+	}
+	if height < 4 {
+		height = 4
+	}
+	// Inner content lines = height - 2 (top + bottom border) - 2 (top+bottom padding row).
+	// Padding(1,2) costs 1 row top + 1 row bottom + 2 cols left + 2 cols right.
+	innerH := height - 2 - 2
+	if innerH < 1 {
+		innerH = 1
+	}
+	innerW := boxOuter - 2 - 4 // -2 border, -4 padding (2 each side)
+	if innerW < 1 {
+		innerW = 1
+	}
+
+	// The viewport's own width/height already reflects the inner area
+	// (sized in WindowSizeMsg). Render it directly; padding adds margin.
+	body := m.viewport.View()
+	// Force the body to occupy exactly the inner area so the box bottom
+	// border always lines up regardless of how many history rows there are.
+	// MaxHeight pins the upper bound — Height alone only pads, it never
+	// truncates, so a viewport sized larger than the box would overflow.
+	body = lipgloss.NewStyle().
+		Width(innerW).
+		Height(innerH).
+		MaxHeight(innerH).
+		MaxWidth(innerW).
+		Render(body)
+	padded := lipgloss.NewStyle().Padding(1, 2).Render(body)
+	return indentBlock(borderWithTitle(padded, "conversation", boxOuter, col))
+}
+
+// renderMessageBox wraps the textarea in a labeled rounded box titled
+// `message`. Width is total terminal width; height grows with the textarea
+// (1..6 inner rows + 2 border).
+func (m model) renderMessageBox(width int) string {
+	col := borderColor()
+	boxOuter := width - 2*len(leftIndent)
+	if boxOuter < 16 {
+		boxOuter = 16
+	}
+	innerW := boxOuter - 2 - 2 // -2 border, -2 padding (1 each side)
+	if innerW < 1 {
+		innerW = 1
+	}
+	// Strip the trailing newline bubbles' textarea appends to each row — it
+	// would otherwise round up to an extra visual row inside the box.
+	body := strings.TrimRight(m.input.View(), "\n")
+	// Bubbles' placeholder rendering pads the last line with spaces past
+	// innerW, which lipgloss .Width then soft-wraps into an extra visual
+	// row. Trim trailing spaces line-by-line to prevent the wrap.
+	body = trimTrailingPerLine(body)
+	// Pin width AND height to the textarea's logical size so the box bottom
+	// border lands consistently. MaxHeight protects against any rogue line
+	// that still wraps so the layout math never overflows.
+	body = lipgloss.NewStyle().
+		Width(innerW).
+		Height(m.input.Height()).
+		MaxHeight(m.input.Height()).
+		Render(body)
+	padded := lipgloss.NewStyle().Padding(0, 1).Render(body)
+	return indentBlock(borderWithTitle(padded, "message", boxOuter, col))
+}
+
+// renderHintLine is the dim one-liner under the message box that reminds
+// users of the two most-discoverable keybindings. Two-space indented to
+// match the global indent rule.
+func (m model) renderHintLine() string {
+	s := styles()
+	return leftIndent + s.dim.Render("ctrl+/ help  ·  ctrl+t theme")
+}
+
+// renderStatusRow is the single-line status row between the conversation
+// and message boxes. Format: `<model marker>   <dot indicators> buffer <pct>%   1d <tokens> · mem <bytes> · 🔧 <tools>` + extras.
+func (m model) renderStatusRow(_ int) string {
 	s := styles()
 	if !m.hasStatus {
 		return leftIndent + s.dim.Render("connecting…")
@@ -73,13 +269,36 @@ func (m model) renderTopBar() string {
 	} else {
 		modelPart = s.ok.Render(st.Model + " ✓")
 	}
-	gauge := m.renderGauge(s, st.ContextTokens, st.ContextBudget)
-	return leftIndent + modelPart + "   " + gauge
+
+	dots, pct := renderBufferDots(s, st.ContextTokens, st.ContextBudget)
+
+	day := st.Usage.Day.InputTokens + st.Usage.Day.OutputTokens
+
+	mid := s.dim.Render(" · ")
+	tokens := s.statusLabel.Render("1d") + " " + s.statusValue.Render(humanizeTokens(day))
+	mem := s.statusLabel.Render("mem") + " " + s.statusValue.Render(humanizeBytes(st.MemSizeBytes))
+	tools := s.statusLabel.Render("🔧") + " " + s.statusValue.Render(fmt.Sprintf("%d", len(st.ToolNames)))
+
+	extras := ""
+	add := func(icon string, n int) {
+		if n > 0 {
+			extras += mid + s.statusLabel.Render(icon) + " " + s.statusValue.Render(fmt.Sprintf("%d", n))
+		}
+	}
+	add("📜", st.SkillCount)
+	add("🔌", st.MCPServerCount)
+	add("🧩", st.PluginCount)
+	add("🧠", st.LSPServerCount)
+	add("⚓", st.HookCount)
+
+	bufferLabel := s.statusLabel.Render("buffer") + " " + s.statusValue.Render(fmt.Sprintf("%d%%", pct))
+	gap := "   "
+	return leftIndent + modelPart + gap + dots + " " + bufferLabel + gap + tokens + mid + mem + mid + tools + extras
 }
 
-// renderGauge renders the in-memory history budget gauge (NOT the model's
-// context window). Style switches between OK/amber/red at thresholds.
-func (m model) renderGauge(s themedStyles, tokens, budget int) string {
+// renderBufferDots draws the 8-cell dot indicator with threshold coloring.
+// Returns the rendered dots string and the integer percentage (0..100).
+func renderBufferDots(s themedStyles, tokens, budget int) (string, int) {
 	pct := 0.0
 	if budget > 0 {
 		pct = float64(tokens) / float64(budget)
@@ -91,73 +310,16 @@ func (m model) renderGauge(s themedStyles, tokens, budget int) string {
 	if filled > gaugeCells {
 		filled = gaugeCells
 	}
-	bar := s.gaugeFilled.Render(strings.Repeat("▓", filled)) +
-		s.gaugeEmpty.Render(strings.Repeat("░", gaugeCells-filled))
 
-	chip := s.ok
-	warn := ""
+	chip := s.accent
 	switch {
 	case pct >= gaugeRedPct:
 		chip = s.red
-		warn = " ⚠"
 	case pct >= gaugeAmberPct:
 		chip = s.amber
-		warn = " ⚠"
 	}
-	return fmt.Sprintf("hist %s/%s %s %s%s",
-		humanizeTokensTenths(tokens),
-		humanizeTokensTenths(budget),
-		bar,
-		chip.Render(fmt.Sprintf("%d%%", int(pct*100))),
-		chip.Render(warn),
-	)
-}
-
-// renderBottomBar lays out the status row with accent window markers and
-// bold values. No background band — the row inherits the terminal bg so
-// both light and dark terminals look intentional.
-func (m model) renderBottomBar() string {
-	s := styles()
-	if !m.hasStatus {
-		return leftIndent + s.dim.Render("")
-	}
-	st := m.status
-	day := st.Usage.Day.InputTokens + st.Usage.Day.OutputTokens
-	week := st.Usage.Week.InputTokens + st.Usage.Week.OutputTokens
-	month := st.Usage.Month.InputTokens + st.Usage.Month.OutputTokens
-
-	div := s.dim.Render("  │  ")
-	kv := func(marker, val string) string {
-		return s.marker.Render(marker) + " " + s.statusValue.Render(val)
-	}
-	tagged := func(label, val string) string {
-		return s.statusLabel.Render(label) + " " + s.statusValue.Render(val)
-	}
-	emo := func(icon string, n int) string {
-		return s.statusLabel.Render(icon) + " " + s.statusValue.Render(fmt.Sprintf("%d", n))
-	}
-
-	tok := strings.Join([]string{
-		kv("1d", humanizeTokens(day)),
-		kv("1w", humanizeTokens(week)),
-		kv("1m", humanizeTokens(month)),
-	}, "  ")
-	mem := tagged("mem", humanizeBytes(st.MemSizeBytes))
-	tools := emo("🔧", len(st.ToolNames)) + "  " + emo("🤖", len(st.SubagentNames))
-
-	extras := ""
-	add := func(icon string, n int) {
-		if n > 0 {
-			extras += div + emo(icon, n)
-		}
-	}
-	add("📜", st.SkillCount)
-	add("🔌", st.MCPServerCount)
-	add("🧩", st.PluginCount)
-	add("🧠", st.LSPServerCount)
-	add("⚓", st.HookCount)
-
-	return leftIndent + tok + div + mem + div + tools + extras
+	dots := chip.Render(strings.Repeat("●", filled)) + s.gaugeEmpty.Render(strings.Repeat("○", gaugeCells-filled))
+	return dots, int(pct * 100)
 }
 
 // renderConversation builds the body for the viewport. Assistant entries
@@ -172,33 +334,22 @@ func (m model) renderConversation() string {
 	if w < 4 {
 		w = 4
 	}
-	innerWidth := w - len(leftIndent)
+	innerWidth := w
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
 	wrap := lipgloss.NewStyle().Width(innerWidth)
 	wrapErr := s.red.Width(innerWidth)
-	indent := func(text string) string {
-		var b strings.Builder
-		for i, line := range strings.Split(text, "\n") {
-			if i > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(leftIndent)
-			b.WriteString(line)
-		}
-		return b.String()
-	}
 
 	var b strings.Builder
 	for _, h := range m.history {
 		switch h.who {
 		case "you":
-			b.WriteString(indent(wrap.Render(s.user.Render("❯ ") + h.text)))
+			b.WriteString(wrap.Render(s.user.Render("❯ ") + h.text))
 		case "bot":
-			b.WriteString(indent(strings.TrimRight(RenderMarkdown(h.text, innerWidth), "\n")))
+			b.WriteString(strings.TrimRight(RenderMarkdown(h.text, innerWidth), "\n"))
 		default:
-			b.WriteString(indent(wrap.Render(s.sys.Render(h.text))))
+			b.WriteString(wrap.Render(s.sys.Render(h.text)))
 		}
 		b.WriteByte('\n')
 		if h.who == "you" || h.who == "bot" {
@@ -207,14 +358,14 @@ func (m model) renderConversation() string {
 	}
 	if m.streaming {
 		if m.stream == "" {
-			b.WriteString(leftIndent + s.dim.Render(m.spinner.View()+" working…"))
+			b.WriteString(s.dim.Render(m.spinner.View() + " working…"))
 		} else {
-			b.WriteString(indent(wrap.Render(m.stream)))
+			b.WriteString(wrap.Render(m.stream))
 		}
 		b.WriteByte('\n')
 	}
 	if m.lastErr != "" {
-		b.WriteString(indent(wrapErr.Render("✗ " + m.lastErr)))
+		b.WriteString(wrapErr.Render("✗ " + m.lastErr))
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -226,42 +377,93 @@ func (m *model) refreshViewport() {
 	m.viewport.GotoBottom()
 }
 
-// View composes top bar / sep / viewport / sep / bottom bar / sep / input.
-// When helpOpen is true an overlay is rendered between the top bar and the
-// viewport listing keybindings + current slash commands.
+// View composes the v2 layout: header box → blank → conversation box →
+// blank → status row → blank → message box → hint line. Falls back to a
+// plain-line layout when terminal height is too small.
 func (m model) View() string {
+	if m.width <= 0 || m.height <= 0 {
+		// Pre-WindowSizeMsg: render nothing visual yet.
+		return ""
+	}
+	if m.height < minBoxedHeight {
+		return m.viewFallback()
+	}
+
+	width := m.width
+	header := m.renderHeader(width)
+	status := m.renderStatusRow(width)
+	message := m.renderMessageBox(width)
+	hint := ""
+	if m.height >= minHintHeight {
+		hint = m.renderHintLine()
+	}
+
+	// Convo box height = total - header(3) - blank(1) - blank(1) -
+	// status(1) - blank(1) - message(input.Height()+2) - hint(0 or 1).
+	msgH := m.input.Height() + 2
+	used := 3 + 1 + 1 + 1 + 1 + msgH
+	if hint != "" {
+		used++
+	}
+	convH := m.height - used
+	if convH < 4 {
+		convH = 4
+	}
+	conv := m.renderConversationBox(width, convH)
+
+	parts := []string{header, "", conv, "", status, "", message}
+	if hint != "" {
+		parts = append(parts, hint)
+	}
+
+	if m.helpOpen {
+		overlay := indentBlock(styles().dim.Render(m.renderHelpOverlay()))
+		// Insert the overlay between header and conversation so it doesn't
+		// blow out the layout math; the conv box still renders below.
+		return lipgloss.JoinVertical(lipgloss.Left,
+			header, "", overlay, "", conv, "", status, "", message, hint)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// viewFallback is the minimal layout for terminals shorter than
+// minBoxedHeight. It mirrors the pre-v2 plain-line layout so czcli stays
+// usable on tiny SSH/tmux panes.
+func (m model) viewFallback() string {
 	s := styles()
 	sep := s.sep.Render(strings.Repeat("─", m.width))
-	inputBlock := lipgloss.JoinVertical(
-		lipgloss.Left,
-		"",
-		leftIndent+m.input.View(),
-	)
-	if m.helpOpen {
-		overlay := indentBlock(s.dim.Render(m.renderHelpOverlay()))
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderTopBar(),
-			sep,
-			overlay,
-			sep,
-			m.viewport.View(),
-			sep,
-			m.renderBottomBar(),
-			sep,
-			inputBlock,
-		)
-	}
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		m.renderTopBar(),
+	header := leftIndent + s.accent.Render("◆") + " " + s.fg.Bold(true).Render("czcli")
+	inputBlock := leftIndent + m.input.View()
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
 		sep,
 		m.viewport.View(),
 		sep,
-		m.renderBottomBar(),
+		m.renderStatusRow(m.width),
 		sep,
 		inputBlock,
 	)
+}
+
+// borderColor returns the active theme's separator color for use as a
+// box border. Falls back to a safe gray when no theme is registered yet.
+func borderColor() lipgloss.Color {
+	t := theme.Active()
+	if t == nil {
+		return lipgloss.Color("#3a3a3a")
+	}
+	return lipgloss.Color(t.Separator)
+}
+
+// trimTrailingPerLine strips trailing spaces from each line. Used to undo
+// the right-pad bubbles' textarea applies to placeholder rows so lipgloss
+// doesn't soft-wrap a padded line into a second visual row.
+func trimTrailingPerLine(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	return strings.Join(lines, "\n")
 }
 
 // indentBlock prefixes every line of text with the standard left indent.

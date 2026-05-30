@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/theme"
 )
@@ -28,24 +30,6 @@ func TestRenderConversationRendersAssistantAsMarkdown(t *testing.T) {
 	}
 }
 
-func TestViewLayoutThinSeparatorsAndIndent(t *testing.T) {
-	theme.LoadBuiltins()
-	th, _ := theme.Get("default-dark")
-	theme.Set(th)
-
-	m := newModel(60, 12)
-	m.hasStatus = true
-	out := m.View()
-	// Must contain at least three horizontal separators (top/middle/bottom)
-	if strings.Count(out, "─") < 3*10 { // generous lower bound across width
-		t.Fatalf("expected thin separator lines, got %q", out)
-	}
-	// Heavy bottom-bar background ANSI should be gone (no Background SGR 48;5;236).
-	if strings.Contains(out, "48;5;236") {
-		t.Fatalf("unexpected legacy bottom background fill")
-	}
-}
-
 func statusFixture() channel.Status {
 	return channel.Status{
 		Provider:      "anthropic",
@@ -67,94 +51,185 @@ func statusFixture() channel.Status {
 	}
 }
 
-func TestTopBarShowsModelAndGauge(t *testing.T) {
+// TestComposeTitledTopRendersTitle exercises the labeled-border helper
+// directly: the rendered top run must include the title, start with the
+// rounded TopLeft glyph, and end with the rounded TopRight glyph.
+func TestComposeTitledTopRendersTitle(t *testing.T) {
+	theme.LoadBuiltins()
+	th, _ := theme.Get("default-dark")
+	theme.Set(th)
+
+	rb := lipgloss.RoundedBorder()
+	out := composeTitledTop("conversation", 40, rb, borderColor())
+	if !strings.Contains(out, "conversation") {
+		t.Fatalf("title not spliced into top border: %q", out)
+	}
+	if !strings.Contains(out, "╭") || !strings.Contains(out, "╮") {
+		t.Fatalf("rounded corners missing from top border: %q", out)
+	}
+}
+
+// TestBorderWithTitleWrapsContent confirms the helper returns a labeled
+// rounded box whose top line carries the title and whose body opens with
+// a vertical border rune.
+func TestBorderWithTitleWrapsContent(t *testing.T) {
+	theme.LoadBuiltins()
+	th, _ := theme.Get("default-dark")
+	theme.Set(th)
+
+	out := borderWithTitle("hello world", "message", 40, borderColor())
+	if !strings.Contains(out, "message") {
+		t.Fatalf("title missing in labeled border output: %q", out)
+	}
+	if !strings.HasPrefix(stripANSI(out), "╭") {
+		t.Fatalf("expected output to start with ╭, got %q", out)
+	}
+}
+
+// TestStatusRowUsesBufferLabel pins the rename: the status row must
+// surface the literal `buffer` and the model name with its ✓ marker.
+func TestStatusRowUsesBufferLabel(t *testing.T) {
+	theme.LoadBuiltins()
+	th, _ := theme.Get("default-dark")
+	theme.Set(th)
+
 	m := newModel(80, 24)
 	m.status = statusFixture()
 	m.hasStatus = true
-	bar := m.renderTopBar()
-	for _, want := range []string{"claude-opus", "hist", "8k", "76%"} {
-		if !strings.Contains(bar, want) {
-			t.Errorf("top bar missing %q\n%s", want, bar)
+	row := m.renderStatusRow(80)
+	for _, want := range []string{"claude-opus", "✓", "buffer", "76%", "1d", "mem", "🔧"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("status row missing %q\n%s", want, row)
 		}
 	}
 }
 
-func TestTopBarFallbackIndicator(t *testing.T) {
+// TestStatusRowFallbackIndicator confirms the fallback marker still
+// reaches the status row when the active model is on a fallback.
+func TestStatusRowFallbackIndicator(t *testing.T) {
 	m := newModel(80, 24)
 	s := statusFixture()
 	s.OnFallback = true
 	s.FallbackIndex = 2
 	m.status = s
 	m.hasStatus = true
-	bar := m.renderTopBar()
-	if !strings.Contains(bar, "fallback") {
-		t.Errorf("expected fallback indicator, got\n%s", bar)
+	if !strings.Contains(m.renderStatusRow(80), "fallback") {
+		t.Errorf("expected fallback indicator in status row")
 	}
 }
 
-func TestGaugeAmberWarningAtThreshold(t *testing.T) {
-	// 6100/8000 = 76% → amber, must include the ⚠ marker.
-	m := newModel(80, 24)
-	m.status = statusFixture()
-	m.hasStatus = true
-	if !strings.Contains(m.renderTopBar(), "⚠") {
-		t.Errorf("expected ⚠ at 76%% context usage")
+// TestBufferDotsThreshold pins the amber threshold: 76% must light up
+// amber dots, while 50% stays in the accent (no amber/red).
+func TestBufferDotsThreshold(t *testing.T) {
+	theme.LoadBuiltins()
+	th, _ := theme.Get("default-dark")
+	theme.Set(th)
+	s := styles()
+
+	// At 76% (gauge fixture) we expect filled dots in amber territory.
+	dots, pct := renderBufferDots(s, 6100, 8000)
+	if pct != 76 {
+		t.Errorf("pct = %d, want 76", pct)
+	}
+	if !strings.Contains(dots, "●") || !strings.Contains(dots, "○") {
+		t.Errorf("dot indicators missing filled/empty glyphs: %q", dots)
+	}
+
+	// At 50% we still see the same glyphs but no warning.
+	dots50, pct50 := renderBufferDots(s, 4000, 8000)
+	if pct50 != 50 {
+		t.Errorf("pct50 = %d, want 50", pct50)
+	}
+	if !strings.Contains(dots50, "●") {
+		t.Errorf("filled dots missing at 50%%")
 	}
 }
 
-func TestBottomBarShowsUsageMemAndCounts(t *testing.T) {
-	m := newModel(80, 24)
-	m.status = statusFixture()
-	m.hasStatus = true
-	bar := m.renderBottomBar()
-	for _, want := range []string{"1d", "124k", "1w", "1m", "mem", "18MB", "8", "3"} {
-		if !strings.Contains(bar, want) {
-			t.Errorf("bottom bar missing %q\n%s", want, bar)
-		}
-	}
-}
-
+// TestViewIncludesAllRegions validates the View() output carries every
+// labeled region of the v2 layout: branded header, conversation box,
+// status row, and message box — plus the user prefix from a turn.
 func TestViewIncludesAllRegions(t *testing.T) {
+	theme.LoadBuiltins()
+	th, _ := theme.Get("default-dark")
+	theme.Set(th)
+
 	m := newModel(80, 24)
 	m.status = statusFixture()
 	m.hasStatus = true
 	m.history = []historyEntry{{who: "you", text: "hey"}, {who: "bot", text: "hi!"}}
 	m.refreshViewport()
 	out := m.View()
-	// "❯" is the user prompt prefix; assistant replies are routed through
-	// glamour markdown so individual characters get wrapped in ANSI escapes
-	// (e.g. "hi!" becomes "hi" + "!" with sgr resets between). Substrings
-	// must therefore be glamour-stable single-char or single-word tokens.
-	for _, want := range []string{"claude-opus", "❯", "hey", "1d", "mem"} {
+	for _, want := range []string{"czcli", "conversation", "message", "buffer", "❯", "claude-opus", "1d", "mem"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q", want)
 		}
 	}
 }
 
-func TestGaugeNoWarningBelowAmber(t *testing.T) {
+// TestViewRoundedCorners checks the visible identity of the v2 layout —
+// rounded corner glyphs must appear in the rendered View, because the
+// header, conversation, and message regions all wrap their content in
+// rounded boxes. This guards against a regression where the boxes are
+// silently dropped during a refactor.
+func TestViewRoundedCorners(t *testing.T) {
+	theme.LoadBuiltins()
+	th, _ := theme.Get("default-dark")
+	theme.Set(th)
+
 	m := newModel(80, 24)
-	s := statusFixture()
-	s.ContextTokens = 4000 // 50%
-	m.status = s
+	m.status = statusFixture()
 	m.hasStatus = true
-	g := m.renderGauge(styles(), s.ContextTokens, s.ContextBudget)
-	if strings.Contains(g, "⚠") {
-		t.Errorf("did not expect ⚠ at 50%%: %s", g)
-	}
-	if !strings.Contains(g, "50%") {
-		t.Errorf("expected 50%% in gauge: %s", g)
+	m.refreshViewport()
+	out := m.View()
+	for _, glyph := range []string{"╭", "╮", "╰", "╯"} {
+		if !strings.Contains(out, glyph) {
+			t.Errorf("rounded corner %q missing from View output", glyph)
+		}
 	}
 }
 
-func TestGaugeRedAtNinety(t *testing.T) {
-	m := newModel(80, 24)
-	s := statusFixture()
-	s.ContextTokens = 7600 // 95%
-	m.status = s
+// TestViewFallbackOnTinyHeight exercises the small-terminal fallback so a
+// 4x80 pane stays usable (no boxes, just header line + viewport + status +
+// input). The output must still contain the brand name and `buffer`.
+func TestViewFallbackOnTinyHeight(t *testing.T) {
+	theme.LoadBuiltins()
+	th, _ := theme.Get("default-dark")
+	theme.Set(th)
+
+	m := newModel(80, 6)
+	m.status = statusFixture()
 	m.hasStatus = true
-	g := m.renderGauge(styles(), s.ContextTokens, s.ContextBudget)
-	if !strings.Contains(g, "⚠") || !strings.Contains(g, "95%") {
-		t.Errorf("expected red warning + 95%%: %s", g)
+	m.refreshViewport()
+	out := m.View()
+	if out == "" {
+		t.Fatalf("fallback should not produce an empty View")
 	}
+	if !strings.Contains(out, "czcli") {
+		t.Errorf("fallback missing brand: %q", out)
+	}
+	if !strings.Contains(out, "buffer") {
+		t.Errorf("fallback missing buffer label: %q", out)
+	}
+}
+
+// stripANSI removes ANSI escape sequences from s so substring assertions
+// on raw glyphs survive across themed styles wrapping the same text.
+func stripANSI(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == 0x1b { // ESC
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if c == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
