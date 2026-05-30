@@ -135,46 +135,6 @@ func composeTitledTop(title string, width int, rb lipgloss.Border, color lipglos
 	return borderStyle.Render(rb.TopLeft + middle + rb.TopRight)
 }
 
-// renderHeader composes the branded header box: `◆ cax` on the left,
-// dim `personal AI assistant` tagline centered, and the active theme name
-// accented on the right. Width is the full terminal width (the box's outer
-// box matches width - 4 to honor the global 2-space indent).
-func (m model) renderHeader(width int) string {
-	s := styles()
-	col := borderColor()
-
-	boxOuter := width - 2*len(leftIndent)
-	if boxOuter < 16 {
-		boxOuter = 16
-	}
-	inner := boxOuter - 2 - 2 // -2 border, -2 padding (1 each side)
-	if inner < 1 {
-		inner = 1
-	}
-
-	left := s.accent.Render("◆") + " " + s.fg.Bold(true).Render("cax")
-	right := s.accent.Render(theme.Active().Name)
-	leftW := lipgloss.Width(left)
-	rightW := lipgloss.Width(right)
-	mid := "personal AI assistant"
-	midW := inner - leftW - rightW
-	if midW < 1 {
-		midW = 1
-	}
-	midRendered := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Active().Dim)).
-		Width(midW).
-		Align(lipgloss.Center).
-		Render(mid)
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top, left, midRendered, right)
-	// Pad row to inner width so the right edge sits flush against the border.
-	row = lipgloss.NewStyle().Width(inner).Render(row)
-	// Apply horizontal padding by composing a one-cell space on each side.
-	padded := " " + row + " "
-	return indentBlock(borderWithTitle(padded, "", boxOuter, col))
-}
-
 // renderConversationBox wraps the viewport content in a labeled rounded box
 // titled `conversation`. width is total terminal width; height is the
 // number of rows allocated to the box (border + padding + content).
@@ -213,6 +173,64 @@ func (m model) renderConversationBox(width, height int) string {
 		Render(body)
 	padded := lipgloss.NewStyle().Padding(1, 2).Render(body)
 	return indentBlock(borderWithTitle(padded, "conversation", boxOuter, col))
+}
+
+// renderCompletionDropdown builds a labeled rounded box titled `commands`
+// listing matches under the current input. The highlighted entry shows the
+// accent color; others are dim. Capped to 6 visible rows.
+func (m model) renderCompletionDropdown(width int) string {
+	s := styles()
+	col := borderColor()
+	boxOuter := width - 2*len(leftIndent)
+	if boxOuter < 16 {
+		boxOuter = 16
+	}
+	innerW := boxOuter - 2 - 2 // -2 border, -2 padding (1 each side)
+	if innerW < 1 {
+		innerW = 1
+	}
+
+	matches := m.completion.matches
+	visible := len(matches)
+	if visible > 6 {
+		visible = 6
+	}
+	// Slide the visible window so the highlighted row stays in view.
+	start := 0
+	if m.completion.idx >= visible {
+		start = m.completion.idx - visible + 1
+	}
+	end := start + visible
+	if end > len(matches) {
+		end = len(matches)
+	}
+
+	var b strings.Builder
+	const nameCol = 16 // "  /permissions  " fits comfortably
+	for i := start; i < end; i++ {
+		e := matches[i]
+		prefix := "  "
+		nameStyle := s.fg
+		if i == m.completion.idx {
+			prefix = s.accent.Bold(true).Render("▸ ")
+			nameStyle = s.accent.Bold(true)
+		}
+		name := nameStyle.Render("/" + e.name)
+		// Right-pad name to nameCol cells (lipgloss.Width counts cells, ignoring ANSI).
+		visW := lipgloss.Width(name) + lipgloss.Width(prefix)
+		pad := nameCol - visW
+		if pad < 1 {
+			pad = 1
+		}
+		row := prefix + name + strings.Repeat(" ", pad) + s.dim.Render(e.desc)
+		b.WriteString(row)
+		if i < end-1 {
+			b.WriteByte('\n')
+		}
+	}
+	body := lipgloss.NewStyle().Width(innerW).Render(b.String())
+	padded := " " + body + " "
+	return indentBlock(borderWithTitle(padded, "commands", boxOuter, col))
 }
 
 // renderMessageBox wraps the textarea in a labeled rounded box titled
@@ -430,7 +448,6 @@ func (m model) View() string {
 	}
 
 	width := m.width
-	header := m.renderHeader(width)
 	status := m.renderStatusRow(width)
 	message := m.renderMessageBox(width)
 	hint := ""
@@ -438,17 +455,17 @@ func (m model) View() string {
 		hint = m.renderHintLine()
 	}
 
-	// Convo box height = total - header(3) - blank(1) - blank(1) -
-	// status(1) - blank(1) - message(input.Height()+2) - hint(0 or 1).
+	// Layout: (welcome 8 rows when shown) + conv + blank + status + blank +
+	// message(input.Height()+2) + hint(0 or 1).
 	msgH := m.input.Height() + 2
-	used := 3 + 1 + 1 + 1 + 1 + msgH
+	used := 1 + 1 + 1 + msgH // blank + status + blank + msg
 	if hint != "" {
 		used++
 	}
 
-	// Welcome card sits between header and conversation on a fresh session
-	// (no history, not streaming). Art is 5 rows + 2 border + 1 trailing
-	// blank = 8 rows reserved.
+	// Welcome card replaces the old branded header: art + tagline + hint
+	// inside a labeled rounded box. Shown on a fresh session (no history,
+	// not streaming). Art is 5 rows + 2 border + 1 trailing blank = 8.
 	showWelcome := len(m.history) == 0 && !m.streaming
 	const welcomeRows = 5 + 2 + 1
 	if showWelcome {
@@ -461,25 +478,38 @@ func (m model) View() string {
 	}
 	conv := m.renderConversationBox(width, convH)
 
-	parts := []string{header, "", conv, "", status, "", message}
+	parts := []string{conv, "", status, "", message}
 	if hint != "" {
 		parts = append(parts, hint)
 	}
 
 	if showWelcome {
 		welcome := m.renderWelcomeBlock(width)
-		parts = []string{header, "", welcome, "", conv, "", status, "", message}
+		parts = []string{welcome, "", conv, "", status, "", message}
 		if hint != "" {
 			parts = append(parts, hint)
 		}
 	}
 
+	// Slash-command dropdown: inserted between status and message box when
+	// non-empty. layout math (in resizeInput) already reserved its rows.
+	if len(m.completion.matches) > 0 {
+		dropdown := m.renderCompletionDropdown(width)
+		// Insert dropdown just before "message".
+		newParts := make([]string, 0, len(parts)+1)
+		for _, p := range parts {
+			if p == message {
+				newParts = append(newParts, dropdown)
+			}
+			newParts = append(newParts, p)
+		}
+		parts = newParts
+	}
+
 	if m.helpOpen {
 		overlay := indentBlock(styles().dim.Render(m.renderHelpOverlay()))
-		// Insert the overlay between header and conversation so it doesn't
-		// blow out the layout math; the conv box still renders below.
 		return lipgloss.JoinVertical(lipgloss.Left,
-			header, "", overlay, "", conv, "", status, "", message, hint)
+			overlay, "", conv, "", status, "", message, hint)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }

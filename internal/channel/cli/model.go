@@ -150,6 +150,10 @@ type model struct {
 	// require-confirm flag; nil leaves /permissions as read-only "unavailable".
 	permDialog *PermDialog
 
+	// completion tracks the live slash-command autocomplete dropdown. Empty
+	// matches = no dropdown visible.
+	completion completionState
+
 	// hookEntries is the typed snapshot of plugin-declared hooks the /hooks
 	// command renders. Populated via WithHookEntries on CLI start; nil when
 	// no plugin contributes hooks. Status.HookCount remains the source of
@@ -278,6 +282,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshViewport()
 			return m, nil
 		}
+		// Completion dropdown intercepts navigation keys when visible.
+		if len(m.completion.matches) > 0 {
+			switch msg.Type {
+			case tea.KeyTab:
+				if m.completion.idx < len(m.completion.matches) {
+					m.applyCompletion(m.completion.matches[m.completion.idx].name)
+				}
+				return m, nil
+			case tea.KeyUp:
+				if m.completion.idx > 0 {
+					m.completion.idx--
+				}
+				return m, nil
+			case tea.KeyDown:
+				if m.completion.idx < len(m.completion.matches)-1 {
+					m.completion.idx++
+				}
+				return m, nil
+			case tea.KeyEsc:
+				m.completion.matches = nil
+				m.resizeInput()
+				return m, nil
+			}
+		}
 		// Help overlay (Ctrl+/). Most terminals emit Ctrl+/ as KeyCtrlUnderscore.
 		if msg.Type == tea.KeyCtrlUnderscore {
 			m.helpOpen = !m.helpOpen
@@ -377,11 +405,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Delegate remaining keys to the input; scroll keys to the viewport.
+	prevInput := m.input.Value()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	cmds = append(cmds, cmd)
 	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
+	if m.input.Value() != prevInput {
+		// Recompute completions whenever the buffer changes. Idx resets to 0
+		// so the top match is always the default Tab target.
+		m.completion.matches = m.completionFor(m.input.Value())
+		m.completion.idx = 0
+	}
 	m.resizeInput()
 	return m, tea.Batch(cmds...)
 }
@@ -510,7 +545,8 @@ func (m *model) resizeInput() {
 	if m.input.Height() != h {
 		m.input.SetHeight(h)
 	}
-	fixed := 9 // header(3)+blank(1)+blank(1)+status(1)+blank(1)+border*2(2)
+	// Layout (header removed): blank(1) + status(1) + blank(1) + msg-border(2) = 5.
+	fixed := 5
 	if m.height >= minHintHeight {
 		fixed++ // hint line
 	}
@@ -520,6 +556,14 @@ func (m *model) resizeInput() {
 	// overflows on resize.
 	if len(m.history) == 0 && !m.streaming {
 		fixed += 8
+	}
+	// Completion dropdown (up to 6 rows + 2 border = 8) sits above the message
+	// box while the user is typing a slash command.
+	if vis := len(m.completion.matches); vis > 0 {
+		if vis > 6 {
+			vis = 6
+		}
+		fixed += vis + 2
 	}
 	boxOuter := m.height - fixed - h
 	if boxOuter < 4 {

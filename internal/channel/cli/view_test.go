@@ -190,7 +190,9 @@ func TestViewIncludesAllRegions(t *testing.T) {
 	m.history = []historyEntry{{who: "you", text: "hey"}, {who: "bot", text: "hi!"}}
 	m.refreshViewport()
 	out := m.View()
-	for _, want := range []string{"cax", "conversation", "message", "buffer", "❯", "claude-opus", "1d", "mem"} {
+	// After header removal: top-level chrome is conv + status + msg. The brand
+	// only appears in the welcome card on empty history.
+	for _, want := range []string{"conversation", "message", "buffer", "❯", "claude-opus", "1d", "mem"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q", want)
 		}
