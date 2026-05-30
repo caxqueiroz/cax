@@ -46,8 +46,21 @@ type Assistant struct {
 	lspInfos       []lsp.ServerInfo
 	hooksDisp      *hooks.Dispatcher // nil-safe; populated by Build/Rebuild
 
+	dialogMu sync.RWMutex
+	dialog   dive.Dialog // optional override; SetDialog wires the TUI's modal
+
 	mu      sync.Mutex
 	running map[string]int // running sub-agent task descriptions -> ref count
+}
+
+// SetDialog installs a custom dive.Dialog used by the permission gate. The
+// next Build/Rebuild picks it up; pass nil to revert to the legacy stdin
+// prompt. Calling this before the first Build is fine — Build reads the
+// field at construction time.
+func (a *Assistant) SetDialog(d dive.Dialog) {
+	a.dialogMu.Lock()
+	a.dialog = d
+	a.dialogMu.Unlock()
 }
 
 // Build assembles the dive.Agent with skills registered as a dive.Extension
@@ -129,11 +142,21 @@ func BuildWithMCPInfos(
 		return nil, fmt.Errorf("agent: augment tools: %w", err)
 	}
 
-	dialog := tools.ConfirmDialog(cfg.Tools.RequireConfirm, os.Stdin, os.Stdout)
+	// Permission dialog is read at hook-fire time so SetDialog after Build
+	// takes effect immediately. Legacy stdin/stdout is the default until the
+	// channel sets its own (TUI modal).
+	legacyDialog := tools.ConfirmDialog(cfg.Tools.RequireConfirm, os.Stdin, os.Stdout)
 	deps := &hookDeps{
-		store:        store,
-		cfg:          cfg,
-		dialog:       dialog,
+		store: store,
+		cfg:   cfg,
+		dialogFn: func() dive.Dialog {
+			a.dialogMu.RLock()
+			defer a.dialogMu.RUnlock()
+			if a.dialog != nil {
+				return a.dialog
+			}
+			return legacyDialog
+		},
 		summarizerFn: func() memory.Summarizer { return a.Summarizer() },
 		hooksDisp:    hooksDisp,
 	}

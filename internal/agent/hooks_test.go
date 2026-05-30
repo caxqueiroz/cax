@@ -59,12 +59,19 @@ func newTestStore(t *testing.T) *memory.Store {
 }
 
 func testDeps(_ *testing.T, store *memory.Store) *hookDeps {
-	return &hookDeps{
+	dlg := dive.Dialog(&dive.AutoApproveDialog{})
+	deps := &hookDeps{
 		store:        store,
 		cfg:          &config.Config{Memory: config.MemoryConfig{TokenBudget: 8000, RecallK: 5}},
-		dialog:       &dive.AutoApproveDialog{},
+		dialogFn:     func() dive.Dialog { return dlg },
 		summarizerFn: func() memory.Summarizer { return noSummarizer{} },
 	}
+	return deps
+}
+
+// setDialog is a test helper that swaps the dialog used by deps in place.
+func (d *hookDeps) setDialog(dlg dive.Dialog) {
+	d.dialogFn = func() dive.Dialog { return dlg }
 }
 
 func TestPreGeneration_InjectsSummaryAndRecall(t *testing.T) {
@@ -99,7 +106,7 @@ func TestPreGeneration_InjectsSummaryAndRecall(t *testing.T) {
 func TestPreToolUse_DeniesWhenDialogRejects(t *testing.T) {
 	store := newTestStore(t)
 	deps := testDeps(t, store)
-	deps.dialog = &dive.DenyAllDialog{} // reject everything
+	deps.setDialog(&dive.DenyAllDialog{}) // reject everything
 
 	hctx := dive.NewHookContext()
 	hctx.Tool = dive.FuncTool("Bash", "run", func(_ context.Context, _ *struct{}) (*dive.ToolResult, error) {
@@ -116,7 +123,7 @@ func TestPreToolUse_DeniesWhenDialogRejects(t *testing.T) {
 func TestPreToolUse_AllowsReadOnlyTool(t *testing.T) {
 	store := newTestStore(t)
 	deps := testDeps(t, store)
-	deps.dialog = &dive.DenyAllDialog{} // even deny-all must not be consulted for non-gated tools
+	deps.setDialog(&dive.DenyAllDialog{}) // even deny-all must not be consulted for non-gated tools
 
 	hctx := dive.NewHookContext()
 	hctx.Tool = dive.FuncTool("Read", "read", func(_ context.Context, _ *struct{}) (*dive.ToolResult, error) {

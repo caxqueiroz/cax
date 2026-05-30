@@ -72,8 +72,36 @@ func (m *model) handleCommand(line string) (string, bool, *creator.Wizard) {
 		return m.cmdNew(args)
 	case "about":
 		return m.cmdAbout(), false, nil
+	case "permissions":
+		return m.cmdPermissions(args), false, nil
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about", name), false, nil
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about /permissions", name), false, nil
+	}
+}
+
+// cmdPermissions toggles or reports the runtime permission-confirm flag.
+// Usage: /permissions [on|off|status]. Empty arg = status.
+// Bypass at startup via cfg.tools.require_confirm: false in config.yaml.
+func (m model) cmdPermissions(args string) string {
+	if m.permDialog == nil {
+		return "permissions: TUI permission modal not wired (set cfg.tools.require_confirm in config.yaml)"
+	}
+	sub := strings.ToLower(strings.TrimSpace(args))
+	switch sub {
+	case "", "status":
+		state := "on (tools prompt for confirmation)"
+		if !m.permDialog.RequireConfirm() {
+			state = "off (all tool calls auto-approved — DANGEROUS)"
+		}
+		return "permissions: " + state + "\nusage: /permissions on|off|status"
+	case "on":
+		m.permDialog.SetRequireConfirm(true)
+		return "permissions: ON — tools will prompt for confirmation"
+	case "off":
+		m.permDialog.SetRequireConfirm(false)
+		return "permissions: OFF — all tool calls auto-approved (DANGEROUS; equivalent to claude-code --dangerously-skip-permissions)"
+	default:
+		return "permissions: unknown subcommand " + sub + "; try /permissions on|off|status"
 	}
 }
 

@@ -164,6 +164,12 @@ func run() error {
 	}
 	reloader.assistant = assistant
 
+	// Install the TUI permission modal. The dialog reads cfg.Tools.RequireConfirm
+	// at construction; bypassing permissions is just `tools.require_confirm: false`
+	// in config (the same knob as Claude Code's --dangerously-skip-permissions).
+	permDialog := cli.NewPermDialog(cfg.Tools.RequireConfirm)
+	assistant.SetDialog(permDialog)
+
 	// Seed config-defined schedules into the store (idempotent) so they
 	// participate in the scheduler's Load/Reload alongside CLI-added ones.
 	for _, sc := range cfg.Schedules {
@@ -198,6 +204,7 @@ func run() error {
 		cli.WithHookEntries(hookEntries),
 		cli.WithUserCommands(contrib.Commands),
 		cli.WithThemeStateFile(themeStatePath()),
+		cli.WithPermDialog(permDialog),
 	)
 	statusFn := func(ctx context.Context) (channel.Status, error) {
 		st, err := assistant.Status(ctx)

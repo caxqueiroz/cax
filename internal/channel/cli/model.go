@@ -141,6 +141,15 @@ type model struct {
 	// submit checks this pointer before routing through Advance.
 	wizard *creator.Wizard
 
+	// pendingPerm holds an in-flight permission request from the agent. While
+	// non-nil the input is locked and key handlers route y/Enter -> allow,
+	// n/Esc -> deny. View renders an inline banner over the conversation.
+	pendingPerm *pendingPermission
+
+	// permDialog is the live TUI permission dialog. /permissions toggles its
+	// require-confirm flag; nil leaves /permissions as read-only "unavailable".
+	permDialog *PermDialog
+
 	// hookEntries is the typed snapshot of plugin-declared hooks the /hooks
 	// command renders. Populated via WithHookEntries on CLI start; nil when
 	// no plugin contributes hooks. Status.HookCount remains the source of
@@ -231,7 +240,44 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 
+	case permRequestMsg:
+		m.pendingPerm = &pendingPermission{title: msg.title, message: msg.message, response: msg.response}
+		m.refreshViewport()
+		return m, nil
+
 	case tea.KeyMsg:
+		// Permission gate is modal: while waiting, accept only y/Enter (allow)
+		// and n/Esc (deny); swallow every other key so it doesn't leak into
+		// the input or trigger another command.
+		if m.pendingPerm != nil {
+			switch msg.Type {
+			case tea.KeyEnter:
+				m.pendingPerm.answer(true)
+				m.history = append(m.history, historyEntry{who: "sys", text: "✓ permission granted: " + m.pendingPerm.title})
+				m.pendingPerm = nil
+			case tea.KeyEsc:
+				m.pendingPerm.answer(false)
+				m.history = append(m.history, historyEntry{who: "sys", text: "✗ permission denied: " + m.pendingPerm.title})
+				m.pendingPerm = nil
+			case tea.KeyRunes:
+				switch strings.ToLower(string(msg.Runes)) {
+				case "y":
+					m.pendingPerm.answer(true)
+					m.history = append(m.history, historyEntry{who: "sys", text: "✓ permission granted: " + m.pendingPerm.title})
+					m.pendingPerm = nil
+				case "n":
+					m.pendingPerm.answer(false)
+					m.history = append(m.history, historyEntry{who: "sys", text: "✗ permission denied: " + m.pendingPerm.title})
+					m.pendingPerm = nil
+				}
+			case tea.KeyCtrlC:
+				m.pendingPerm.answer(false)
+				m.pendingPerm = nil
+				return m, tea.Quit
+			}
+			m.refreshViewport()
+			return m, nil
+		}
 		// Help overlay (Ctrl+/). Most terminals emit Ctrl+/ as KeyCtrlUnderscore.
 		if msg.Type == tea.KeyCtrlUnderscore {
 			m.helpOpen = !m.helpOpen
@@ -373,10 +419,16 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	if m.wizard != nil {
 		return m.advanceWizard(line)
 	}
+	wasEmpty := len(m.history) == 0
 	m.history = append(m.history, historyEntry{who: "you", text: line})
 	m.streaming = true
 	m.stream = ""
 	m.lastErr = ""
+	if wasEmpty {
+		// Welcome card just disappeared — recompute viewport so the conv box
+		// can claim the freed rows on the very next render.
+		m.resizeInput()
+	}
 	m.refreshViewport()
 	return m, tea.Batch(emitSubmit(line), m.spinner.Tick)
 }
@@ -461,6 +513,13 @@ func (m *model) resizeInput() {
 	fixed := 9 // header(3)+blank(1)+blank(1)+status(1)+blank(1)+border*2(2)
 	if m.height >= minHintHeight {
 		fixed++ // hint line
+	}
+	// Welcome card (5 art + 2 border + 1 trailing blank = 8) sits above the
+	// conv box on a fresh session and must be subtracted, otherwise the
+	// viewport is sized larger than its containing box and the layout
+	// overflows on resize.
+	if len(m.history) == 0 && !m.streaming {
+		fixed += 8
 	}
 	boxOuter := m.height - fixed - h
 	if boxOuter < 4 {

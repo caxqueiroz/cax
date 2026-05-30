@@ -29,6 +29,7 @@ type CLI struct {
 	hookEntries    []hooks.Entry
 	userCommands   []plugins.PluginCommand
 	themeStateFile string
+	permDialog     *PermDialog // optional; nil disables the TUI permission modal
 }
 
 // Option configures a CLI.
@@ -82,6 +83,13 @@ func WithThemeStateFile(path string) Option {
 	return func(c *CLI) { c.themeStateFile = path }
 }
 
+// WithPermDialog wires the TUI permission modal. cli.Start will install the
+// program's Send fn so the dialog's Show() can push a permRequestMsg into
+// the model. When unset the agent uses the legacy stdin/stdout prompt.
+func WithPermDialog(d *PermDialog) Option {
+	return func(c *CLI) { c.permDialog = d }
+}
+
 // New builds a CLI channel with sensible defaults.
 func New(opts ...Option) *CLI {
 	c := &CLI{
@@ -111,6 +119,7 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	m.hookEntries = c.hookEntries
 	m.userCommands = c.userCommands
 	m.themeStateFile = c.themeStateFile
+	m.permDialog = c.permDialog
 	pm := &programModel{
 		model:  m,
 		cli:    c,
@@ -124,6 +133,9 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	// shell history that was behind us when cax launched).
 	p := tea.NewProgram(pm, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	pm.send = p.Send
+	if c.permDialog != nil {
+		c.permDialog.setSender(p.Send)
+	}
 
 	// Cancel the program when the context ends.
 	go func() {

@@ -23,7 +23,7 @@ var gatedTools = map[string]bool{"Bash": true, "Write": true, "Edit": true}
 type hookDeps struct {
 	store        *memory.Store
 	cfg          *config.Config
-	dialog       dive.Dialog
+	dialogFn     func() dive.Dialog // late-bound; reads the current dialog at fire time
 	summarizerFn func() memory.Summarizer
 	hooksDisp    *hooks.Dispatcher
 }
@@ -127,7 +127,8 @@ func (d *hookDeps) preToolUse(ctx context.Context, hctx *dive.HookContext) error
 	if hctx.Call != nil && len(hctx.Call.Input) > 0 {
 		message = name + " " + string(hctx.Call.Input)
 	}
-	out, err := d.dialog.Show(ctx, &dive.DialogInput{
+	dialog := d.dialogFn()
+	out, err := dialog.Show(ctx, &dive.DialogInput{
 		Title:   name,
 		Message: message,
 		Confirm: true,

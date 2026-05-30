@@ -397,6 +397,17 @@ func (m model) renderConversation() string {
 		b.WriteString(wrapErr.Render("✗ " + m.lastErr))
 		b.WriteByte('\n')
 	}
+	if m.pendingPerm != nil {
+		// Banner: amber heading, command shown indented, keybind hint dim.
+		banner := s.amber.Bold(true).Render("⚠ permission required: " + m.pendingPerm.title)
+		body := ""
+		if m.pendingPerm.message != "" {
+			body = "\n" + wrap.Render("  "+m.pendingPerm.message)
+		}
+		hint := "\n" + s.dim.Render("press y or Enter to allow · n or Esc to deny")
+		b.WriteString(banner + body + hint)
+		b.WriteByte('\n')
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
