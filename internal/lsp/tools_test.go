@@ -135,6 +135,31 @@ func TestLSPHover(t *testing.T) {
 	}
 }
 
+func TestLSPDocumentSymbols(t *testing.T) {
+	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+		switch req.Method() {
+		case protocol.MethodInitialize:
+			return reply(ctx, &protocol.InitializeResult{}, nil)
+		case protocol.MethodInitialized, protocol.MethodTextDocumentDidOpen:
+			return reply(ctx, nil, nil)
+		case protocol.MethodTextDocumentDocumentSymbol:
+			syms := []protocol.DocumentSymbol{
+				{Name: "main", Kind: protocol.SymbolKindFunction},
+				{Name: "Config", Kind: protocol.SymbolKindStruct},
+			}
+			return reply(ctx, syms, nil)
+		}
+		return reply(ctx, nil, nil)
+	}
+	m, file := setupManagerWithFake(t, handler)
+	tool := toolByName(m.Tools(), "lsp_document_symbols")
+	res := callTool(t, tool, map[string]any{"file": file})
+	text := resultText(res)
+	if !strings.Contains(text, "main") || !strings.Contains(text, "Config") {
+		t.Fatalf("document_symbols missing names: %q", text)
+	}
+}
+
 func TestLSPDefinition(t *testing.T) {
 	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		switch req.Method() {

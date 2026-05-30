@@ -170,7 +170,114 @@ func formatHover(raw json.RawMessage) string {
 	return "hover: " + string(raw)
 }
 
-func (m *Manager) documentSymbolsTool() dive.Tool { return placeholderTool("lsp_document_symbols") }
+func (m *Manager) documentSymbolsTool() dive.Tool {
+	return dive.FuncTool("lsp_document_symbols",
+		"List symbols defined in a file (functions, types, vars).",
+		func(ctx context.Context, args *fileArgs) (*dive.ToolResult, error) {
+			s, lang, ok := m.routeServer(args.File)
+			if !ok {
+				return dive.NewToolResultText(noServerMessage(args.File, lang)), nil
+			}
+			rctx, cancel := context.WithTimeout(ctx, requestTimeout)
+			defer cancel()
+			if err := m.ensureOpen(rctx, s, args.File); err != nil {
+				return dive.NewToolResultText(fmt.Sprintf("lsp_document_symbols: open: %v", err)), nil
+			}
+			var raw json.RawMessage
+			if _, err := s.conn.Call(rctx, protocol.MethodTextDocumentDocumentSymbol, &protocol.DocumentSymbolParams{
+				TextDocument: protocol.TextDocumentIdentifier{URI: uri.File(args.File)},
+			}, &raw); err != nil {
+				return dive.NewToolResultText(fmt.Sprintf("lsp_document_symbols: call: %v", err)), nil
+			}
+			return dive.NewToolResultText(formatDocumentSymbols(raw)), nil
+		},
+	)
+}
+
+// formatDocumentSymbols handles BOTH shapes the LSP spec allows: []DocumentSymbol
+// or []SymbolInformation. We try DocumentSymbol first (richer); fall back.
+func formatDocumentSymbols(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "document_symbols: no symbols"
+	}
+	var docSyms []protocol.DocumentSymbol
+	if err := json.Unmarshal(raw, &docSyms); err == nil && len(docSyms) > 0 {
+		var b strings.Builder
+		fmt.Fprintf(&b, "document_symbols (%d):\n", len(docSyms))
+		for _, s := range docSyms {
+			fmt.Fprintf(&b, "  %s (%s)\n", s.Name, symbolKindString(s.Kind))
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	var infoSyms []protocol.SymbolInformation
+	if err := json.Unmarshal(raw, &infoSyms); err == nil && len(infoSyms) > 0 {
+		var b strings.Builder
+		fmt.Fprintf(&b, "document_symbols (%d):\n", len(infoSyms))
+		for _, s := range infoSyms {
+			fmt.Fprintf(&b, "  %s (%s) in %s\n", s.Name, symbolKindString(s.Kind), string(s.Location.URI))
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	return "document_symbols: no symbols"
+}
+
+func symbolKindString(k protocol.SymbolKind) string {
+	switch k {
+	case protocol.SymbolKindFile:
+		return "file"
+	case protocol.SymbolKindModule:
+		return "module"
+	case protocol.SymbolKindNamespace:
+		return "namespace"
+	case protocol.SymbolKindPackage:
+		return "package"
+	case protocol.SymbolKindClass:
+		return "class"
+	case protocol.SymbolKindMethod:
+		return "method"
+	case protocol.SymbolKindProperty:
+		return "property"
+	case protocol.SymbolKindField:
+		return "field"
+	case protocol.SymbolKindConstructor:
+		return "constructor"
+	case protocol.SymbolKindEnum:
+		return "enum"
+	case protocol.SymbolKindInterface:
+		return "interface"
+	case protocol.SymbolKindFunction:
+		return "function"
+	case protocol.SymbolKindVariable:
+		return "variable"
+	case protocol.SymbolKindConstant:
+		return "constant"
+	case protocol.SymbolKindString:
+		return "string"
+	case protocol.SymbolKindNumber:
+		return "number"
+	case protocol.SymbolKindBoolean:
+		return "boolean"
+	case protocol.SymbolKindArray:
+		return "array"
+	case protocol.SymbolKindObject:
+		return "object"
+	case protocol.SymbolKindKey:
+		return "key"
+	case protocol.SymbolKindNull:
+		return "null"
+	case protocol.SymbolKindEnumMember:
+		return "enum_member"
+	case protocol.SymbolKindStruct:
+		return "struct"
+	case protocol.SymbolKindEvent:
+		return "event"
+	case protocol.SymbolKindOperator:
+		return "operator"
+	case protocol.SymbolKindTypeParameter:
+		return "type_parameter"
+	}
+	return fmt.Sprintf("kind(%d)", int(k))
+}
 func (m *Manager) workspaceSymbolsTool() dive.Tool {
 	return placeholderTool("lsp_workspace_symbols")
 }
