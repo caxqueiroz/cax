@@ -11,12 +11,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/caxqueiroz/czcli/internal/agent"
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/channel/cli"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/creator"
 	"github.com/caxqueiroz/czcli/internal/hooks"
 	"github.com/caxqueiroz/czcli/internal/lsp"
 	"github.com/caxqueiroz/czcli/internal/mcp"
@@ -133,10 +135,34 @@ func run() error {
 	hookEntries := contribsToHookEntries(contrib.Hooks, slog.Default())
 	hooksDisp := hooks.Load(hookEntries, slog.Default())
 
-	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, nil)
+	// Creator: writer materializes new skills/agents/commands under
+	// ~/.czcli/{skills,agents,commands}; the reloader shim captures every
+	// Assistant.Rebuild dependency so the create_* FuncTools can hot-reload
+	// the live agent via the single-method creator.Reloader contract without
+	// the creator package importing internal/agent.
+	skillsDir, agentsDir, commandsDir := creatorPaths()
+	writer := creator.Writer{
+		SkillsDir:   skillsDir,
+		AgentsDir:   agentsDir,
+		CommandsDir: commandsDir,
+	}
+	reloader := &assistantReloader{
+		cfg:       cfg,
+		skillRes:  skillRes,
+		mcpTools:  mcpTools,
+		mcpInfos:  mcpInfos,
+		lspTools:  lspTools,
+		lspInfos:  lspInfos,
+		hooksDisp: hooksDisp,
+	}
+	creatorTools := creator.Tools(writer, reloader)
+	reloader.creatorTools = creatorTools
+
+	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, creatorTools)
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
 	}
+	reloader.assistant = assistant
 
 	// Seed config-defined schedules into the store (idempotent) so they
 	// participate in the scheduler's Load/Reload alongside CLI-added ones.
@@ -156,7 +182,14 @@ func run() error {
 	}
 	defer sched.Stop()
 
-	pluginsAdp := pluginAdapter{mgr: pluginsMgr, cfg: cfg, assistant: assistant, lspHolder: holder}
+	pluginsAdp := pluginAdapter{
+		mgr:          pluginsMgr,
+		cfg:          cfg,
+		assistant:    assistant,
+		lspHolder:    holder,
+		creatorTools: creatorTools,
+		reloader:     reloader,
+	}
 	ch := cli.New(
 		cli.WithSessionID("cli"),
 		cli.WithScheduler(scheduleAdapter{store: store, sched: sched}),
@@ -398,6 +431,14 @@ type pluginAdapter struct {
 	cfg       *config.Config
 	assistant *agent.Assistant
 	lspHolder *lspHolder
+	// creatorTools is the slice of create_* FuncTools (skill/agent/command)
+	// re-passed through assistant.Rebuild on every hot-reload so creator-
+	// authored tool requests stay available after plugin mutations.
+	creatorTools []dive.Tool
+	// reloader is the assistantReloader shared with the create_* tools. Its
+	// captured args are refreshed inside Rebuild BEFORE the swap so a
+	// creator-triggered Rebuild always sees the latest plugin contributions.
+	reloader *assistantReloader
 }
 
 func (a pluginAdapter) List(ctx context.Context) ([]cli.PluginListItem, error) {
@@ -475,7 +516,12 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 	hookEntries := contribsToHookEntries(contrib.Hooks, slog.Default())
 	hooksDisp := hooks.Load(hookEntries, slog.Default())
 
-	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, nil); err != nil {
+	// Refresh the reloader's captured args BEFORE the rebuild so any in-flight
+	// create-tool call that runs during the swap sees the latest contributions.
+	if a.reloader != nil {
+		a.reloader.update(skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp)
+	}
+	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, a.creatorTools); err != nil {
 		return fmt.Errorf("plugins: agent rebuild: %w", err)
 	}
 	slog.Info("plugins: hot-reload complete",
@@ -554,6 +600,82 @@ func resolveConfigPath() (path string, isDefault bool) {
 		return local, false
 	}
 	return filepath.Join(home, ".czcli", "config.yaml"), true
+}
+
+// assistantReloader satisfies creator.Reloader by capturing the seven
+// non-creator dependencies *agent.Assistant.Rebuild needs (cfg, skillRes,
+// mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp) plus the creator tool
+// slice itself (so Rebuild re-supplies the same set the live agent holds).
+// pluginAdapter.Rebuild calls update() after every reload so the captured
+// args track the latest plugin contributions.
+type assistantReloader struct {
+	mu           sync.Mutex
+	assistant    *agent.Assistant
+	cfg          *config.Config
+	skillRes     *skills.LoadResult
+	mcpTools     []dive.Tool
+	mcpInfos     []mcp.ServerInfo
+	lspTools     []dive.Tool
+	lspInfos     []lsp.ServerInfo
+	hooksDisp    *hooks.Dispatcher
+	creatorTools []dive.Tool
+}
+
+// Rebuild satisfies creator.Reloader. It shallow-copies the captured args
+// under the lock and calls assistant.Rebuild unlocked so a concurrent
+// pluginAdapter.Rebuild that may itself want to update() doesn't deadlock
+// against the in-flight reload.
+func (r *assistantReloader) Rebuild(ctx context.Context) error {
+	r.mu.Lock()
+	a := r.assistant
+	cfg := r.cfg
+	skillRes := r.skillRes
+	mcpTools := r.mcpTools
+	mcpInfos := r.mcpInfos
+	lspTools := r.lspTools
+	lspInfos := r.lspInfos
+	hooksDisp := r.hooksDisp
+	creatorTools := r.creatorTools
+	r.mu.Unlock()
+	if a == nil {
+		return fmt.Errorf("assistantReloader: not initialized")
+	}
+	return a.Rebuild(ctx, cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, creatorTools)
+}
+
+// update refreshes the captured arg snapshot. Called by pluginAdapter.Rebuild
+// (and the initial wiring in run) so a creator-triggered Rebuild always sees
+// the latest plugin contributions.
+func (r *assistantReloader) update(
+	skillRes *skills.LoadResult,
+	mcpTools []dive.Tool, mcpInfos []mcp.ServerInfo,
+	lspTools []dive.Tool, lspInfos []lsp.ServerInfo,
+	hooksDisp *hooks.Dispatcher,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.skillRes = skillRes
+	r.mcpTools = mcpTools
+	r.mcpInfos = mcpInfos
+	r.lspTools = lspTools
+	r.lspInfos = lspInfos
+	r.hooksDisp = hooksDisp
+}
+
+// creatorPaths resolves the three target directories under the user's HOME.
+// Falls back to a process-local tmp dir when HOME is unresolvable so czcli
+// still starts on broken environments (the create tools will still work; the
+// files just land in a temp dir).
+func creatorPaths() (skillsDir, agentsDir, commandsDir string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		slog.Warn("creator: cannot resolve home dir; using temp dir", "err", err)
+		home = os.TempDir()
+	}
+	base := filepath.Join(home, ".czcli")
+	return filepath.Join(base, "skills"),
+		filepath.Join(base, "agents"),
+		filepath.Join(base, "commands")
 }
 
 // ensureDefaultConfig writes the embedded default config to path on first run.
