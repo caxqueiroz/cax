@@ -80,7 +80,9 @@ func (m model) renderGauge(tokens, budget int) string {
 	)
 }
 
-// renderBottomBar: "tok 1d124k 1w812k 1m3.2M·mem18MB·🔧8 🤖3".
+// renderBottomBar: "tok 1d124k 1w812k 1m3.2M·mem18MB·🔧8 🤖3 · 📜N · 🔌M · 🧩P".
+// Extra counters (skills 📜, MCP 🔌, plugins 🧩) appear only when non-zero so
+// the bottom bar stays clean for users who don't use them.
 func (m model) renderBottomBar() string {
 	if !m.hasStatus {
 		return barStyle.Width(m.width).Render("")
@@ -90,13 +92,25 @@ func (m model) renderBottomBar() string {
 	week := s.Usage.Week.InputTokens + s.Usage.Week.OutputTokens
 	month := s.Usage.Month.InputTokens + s.Usage.Month.OutputTokens
 
-	line := fmt.Sprintf("tok 1d%s 1w%s 1m%s·mem%s·🔧%d 🤖%d",
+	var extras strings.Builder
+	if s.SkillCount > 0 {
+		fmt.Fprintf(&extras, " · 📜%d", s.SkillCount)
+	}
+	if s.MCPServerCount > 0 {
+		fmt.Fprintf(&extras, " · 🔌%d", s.MCPServerCount)
+	}
+	if s.PluginCount > 0 {
+		fmt.Fprintf(&extras, " · 🧩%d", s.PluginCount)
+	}
+
+	line := fmt.Sprintf("tok 1d%s 1w%s 1m%s·mem%s·🔧%d 🤖%d%s",
 		humanizeTokens(day),
 		humanizeTokens(week),
 		humanizeTokens(month),
 		humanizeBytes(s.MemSizeBytes),
 		len(s.ToolNames),
 		len(s.SubagentNames),
+		extras.String(),
 	)
 	return dimStyle.Width(m.width).Render(line)
 }
