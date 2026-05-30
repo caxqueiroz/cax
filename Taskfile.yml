@@ -2,7 +2,8 @@
 version: '3'
 
 vars:
-  BIN: bin/czcli
+  DIST: dist
+  BIN: dist/czcli
   PKG: ./...
   CMD: ./cmd/czcli
   COVERAGE_FILE: coverage.out
@@ -16,14 +17,9 @@ tasks:
     silent: true
 
   build:
-    desc: Build all packages (no binary output)
+    desc: Build the czcli binary into ./dist/czcli
     cmds:
-      - go build {{.PKG}}
-
-  build:bin:
-    desc: Build the czcli binary into ./bin/czcli
-    cmds:
-      - mkdir -p bin
+      - mkdir -p {{.DIST}}
       - go build -o {{.BIN}} {{.CMD}}
 
   run:
@@ -114,5 +110,5 @@ tasks:
   clean:
     desc: Remove built binaries and coverage artifacts
     cmds:
-      - rm -rf bin
+      - rm -rf {{.DIST}}
       - rm -f {{.COVERAGE_FILE}} {{.COVERAGE_HTML}}
