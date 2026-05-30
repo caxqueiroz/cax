@@ -24,6 +24,7 @@ import (
 	"github.com/caxqueiroz/czcli/internal/plugins"
 	"github.com/caxqueiroz/czcli/internal/scheduler"
 	"github.com/caxqueiroz/czcli/internal/skills"
+	"github.com/caxqueiroz/czcli/internal/theme"
 	"github.com/deepnoodle-ai/dive"
 )
 
@@ -53,6 +54,17 @@ func run() error {
 	cfg, err := config.Load(path)
 	if err != nil {
 		return fmt.Errorf("load config from %q (override with $CZCLI_CONFIG or place one at ./.czcli/config.yaml): %w", path, err)
+	}
+
+	// Themes: load embedded built-ins, then user themes from ~/.czcli/themes,
+	// then resolve the active one. Order: state.json > config.cli.theme >
+	// terminal-adapted default-{dark,light}.
+	theme.LoadBuiltins()
+	if themesDir := userThemesDir(); themesDir != "" {
+		theme.LoadUserDir(themesDir)
+	}
+	if active := theme.Resolve(theme.StateFile(), cfg.CLI.Theme); active != nil {
+		slog.Info("theme: active", "name", active.Name)
 	}
 
 	embedder, err := memory.NewEmbedder(cfg.Embeddings)
@@ -213,6 +225,17 @@ func mcpTokenPath() string {
 		return filepath.Join(os.TempDir(), "czcli-mcp-tokens.json")
 	}
 	return filepath.Join(home, ".czcli", "mcp-tokens.json")
+}
+
+// userThemesDir returns ~/.czcli/themes or "" if home cannot be resolved.
+// The directory does not need to exist; LoadUserDir silently no-ops on
+// missing dirs.
+func userThemesDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".czcli", "themes")
 }
 
 // pluginsStatePath returns the default plugin state file under the user's home
