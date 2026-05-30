@@ -25,6 +25,7 @@ import (
 	"github.com/caxqueiroz/czcli/internal/scheduler"
 	"github.com/caxqueiroz/czcli/internal/skills"
 	"github.com/caxqueiroz/czcli/internal/theme"
+	"github.com/caxqueiroz/czcli/internal/usercmds"
 	"github.com/deepnoodle-ai/dive"
 )
 
@@ -96,6 +97,10 @@ func run() error {
 	if err != nil {
 		slog.Warn("plugins: initial load", "error", err)
 	}
+	// Merge user-level slash commands from cfg.Commands.Dirs into the plugin
+	// Contributions. User commands take Source = "user:<dir-basename>" so the
+	// dispatcher can tell them apart from plugin-contributed ones.
+	contrib.Commands = append(contrib.Commands, usercmds.Load(cfg.Commands.Dirs)...)
 
 	// Load skills (best-effort), pulling extra dirs from plugin contributions.
 	skillRes, err := skills.Load(cfg.Skills, contrib.SkillDirs)
@@ -422,6 +427,15 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 	contrib, _, err := a.mgr.Load(ctx)
 	if err != nil {
 		return fmt.Errorf("plugins: reload: %w", err)
+	}
+	// Merge user-level slash commands so /reload + /plugin mutations hot-pick
+	// changes to ~/.czcli/commands/*.md alongside plugin contributions.
+	contrib.Commands = append(contrib.Commands, usercmds.Load(a.cfg.Commands.Dirs)...)
+	// Re-load any user themes so a fresh ~/.czcli/themes/*.yaml is registered
+	// before the next render. Built-ins were already embedded at startup; new
+	// user themes will become Cycle-able after this call.
+	if themesDir := userThemesDir(); themesDir != "" {
+		theme.LoadUserDir(themesDir)
 	}
 	skillRes, err := skills.Load(a.cfg.Skills, contrib.SkillDirs)
 	if err != nil {
