@@ -451,9 +451,10 @@ func (m model) renderConversation() string {
 			b.WriteString(statusLine)
 		} else {
 			// Once tokens start arriving, render them in flow above the
-			// status line so the user can read the answer as it grows.
+			// status line. A blank line between the streaming text and the
+			// "Shimmying… 13s · ↓ N tokens" row keeps them visually distinct.
 			b.WriteString(wrap.Render(m.stream))
-			b.WriteByte('\n')
+			b.WriteString("\n\n")
 			b.WriteString(statusLine)
 		}
 		b.WriteByte('\n')
