@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -18,6 +19,7 @@ import (
 	"github.com/caxqueiroz/czcli/internal/config"
 	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
+	"github.com/caxqueiroz/czcli/internal/plugins"
 	"github.com/caxqueiroz/czcli/internal/scheduler"
 	"github.com/caxqueiroz/czcli/internal/skills"
 )
@@ -63,15 +65,27 @@ func run() error {
 		return fmt.Errorf("build model: %w", err)
 	}
 
-	// Load skills (best-effort: missing dirs are logged, not fatal).
-	skillRes, err := skills.Load(cfg.Skills, nil)
+	// Plugins: discover Claude Code-compatible plugin bundles. Drop-folder
+	// roots come from cfg.Plugins.Dirs (defaults: ~/.czcli/plugins,
+	// .czcli/plugins). State file lives at ~/.czcli/plugins.json. Per-plugin
+	// parse errors are logged + skipped; a broken plugin never blocks startup.
+	pluginsMgr := plugins.New(cfg.Plugins, pluginsStatePath(), gitClone)
+	contrib, _, err := pluginsMgr.Load(ctx)
+	if err != nil {
+		slog.Warn("plugins: initial load", "error", err)
+	}
+
+	// Load skills (best-effort), pulling extra dirs from plugin contributions.
+	skillRes, err := skills.Load(cfg.Skills, contrib.SkillDirs)
 	if err != nil {
 		slog.Warn("skills: load failed; continuing without skills", "err", err)
 		skillRes = nil
 	}
 
-	// Connect MCP servers (best-effort: per-server errors land in ServerInfo).
-	mcpTools, mcpInfos, err := mcp.Connect(ctx, cfg.MCP.Servers, mcpTokenPath())
+	// Connect MCP servers (best-effort: per-server errors land in ServerInfo),
+	// merging user config and plugin contributions.
+	mcpServers := mergeMCPServers(cfg.MCP.Servers, contrib.MCPServers)
+	mcpTools, mcpInfos, err := mcp.Connect(ctx, mcpServers, mcpTokenPath())
 	if err != nil {
 		slog.Warn("mcp: connect failed; continuing without MCP tools", "err", err)
 	}
@@ -99,11 +113,21 @@ func run() error {
 	}
 	defer sched.Stop()
 
+	pluginsAdp := pluginAdapter{mgr: pluginsMgr, cfg: cfg, assistant: assistant}
 	ch := cli.New(
 		cli.WithSessionID("cli"),
 		cli.WithScheduler(scheduleAdapter{store: store, sched: sched}),
+		cli.WithPlugins(pluginsAdp),
 	)
-	if err := ch.Start(ctx, assistant.Handle, assistant.Status); err != nil {
+	statusFn := func(ctx context.Context) (channel.Status, error) {
+		st, err := assistant.Status(ctx)
+		if err != nil {
+			return st, err
+		}
+		st.PluginCount, st.PluginNames = pluginsAdp.Snapshot(ctx)
+		return st, nil
+	}
+	if err := ch.Start(ctx, assistant.Handle, statusFn); err != nil {
 		return fmt.Errorf("run cli channel: %w", err)
 	}
 	return nil
@@ -162,4 +186,143 @@ func mcpTokenPath() string {
 		return filepath.Join(os.TempDir(), "czcli-mcp-tokens.json")
 	}
 	return filepath.Join(home, ".czcli", "mcp-tokens.json")
+}
+
+// pluginsStatePath returns the default plugin state file under the user's home
+// dir, falling back to a process-local file when home is unresolvable.
+func pluginsStatePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "czcli-plugins.json")
+	}
+	return filepath.Join(home, ".czcli", "plugins.json")
+}
+
+// gitClone is the production CloneFunc: shallow git clone of gitURL into dest.
+// We pin --depth=1 since runtime never needs history. Any non-zero exit is
+// surfaced verbatim through the returned error.
+func gitClone(ctx context.Context, gitURL, dest string) error {
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", gitURL, dest)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git clone %s: %w (output: %s)", gitURL, err, string(out))
+	}
+	return nil
+}
+
+// mergeMCPServers concatenates user-config and plugin-contributed MCP servers,
+// dropping duplicates by Name (user config wins). Deterministic order: user
+// entries first, then plugin entries in the order Manager.Load returned them.
+func mergeMCPServers(user, fromPlugins []config.MCPServerConfig) []config.MCPServerConfig {
+	if len(fromPlugins) == 0 {
+		return user
+	}
+	seen := make(map[string]bool, len(user)+len(fromPlugins))
+	out := make([]config.MCPServerConfig, 0, len(user)+len(fromPlugins))
+	for _, s := range user {
+		if seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		out = append(out, s)
+	}
+	for _, s := range fromPlugins {
+		if seen[s.Name] {
+			slog.Warn("plugins: mcp server name collides with user config; keeping user", "name", s.Name)
+			continue
+		}
+		seen[s.Name] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+// pluginAdapter satisfies cli.pluginBackend over the Manager + Assistant. It
+// flattens plugins.PluginInfo into cli.PluginListItem for List, and on every
+// mutation re-runs Manager.Load + skills.Load + mcp.Connect with the merged
+// config + contributions and asks the Assistant to Rebuild so the agent picks
+// up new skills/MCP/LSP/hooks/commands on the next turn.
+type pluginAdapter struct {
+	mgr       *plugins.Manager
+	cfg       *config.Config
+	assistant *agent.Assistant
+}
+
+func (a pluginAdapter) List(ctx context.Context) ([]cli.PluginListItem, error) {
+	_, infos, err := a.mgr.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]cli.PluginListItem, 0, len(infos))
+	for _, p := range infos {
+		out = append(out, cli.PluginListItem{
+			Name:       p.Name,
+			Version:    p.Version,
+			Source:     p.Source,
+			Enabled:    p.Enabled,
+			SkillCount: p.Counts.Skills,
+			MCPCount:   p.Counts.MCP,
+			LSPCount:   p.Counts.LSP,
+			HookCount:  p.Counts.Hooks,
+			CmdCount:   p.Counts.Commands,
+			AgentCount: p.Counts.Agents,
+		})
+	}
+	return out, nil
+}
+
+func (a pluginAdapter) Install(ctx context.Context, gitURL, name string) error {
+	_, err := a.mgr.Install(ctx, gitURL, name)
+	return err
+}
+
+func (a pluginAdapter) Enable(_ context.Context, name string) error  { return a.mgr.Enable(name) }
+func (a pluginAdapter) Disable(_ context.Context, name string) error { return a.mgr.Disable(name) }
+func (a pluginAdapter) Remove(_ context.Context, name string) error  { return a.mgr.Remove(name) }
+
+// Rebuild re-runs Manager.Load, merges plugin contributions with the user
+// config, reloads skills and reconnects MCP, then asks the agent to swap its
+// inner *dive.Agent atomically. In-flight turns finish under the old agent;
+// the next turn picks up the new one.
+func (a pluginAdapter) Rebuild(ctx context.Context) error {
+	contrib, _, err := a.mgr.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("plugins: reload: %w", err)
+	}
+	skillRes, err := skills.Load(a.cfg.Skills, contrib.SkillDirs)
+	if err != nil {
+		slog.Warn("plugins: rebuild: skills.Load failed; continuing without skills", "err", err)
+		skillRes = nil
+	}
+	mcpServers := mergeMCPServers(a.cfg.MCP.Servers, contrib.MCPServers)
+	mcpTools, mcpInfos, err := mcp.Connect(ctx, mcpServers, mcpTokenPath())
+	if err != nil {
+		slog.Warn("plugins: rebuild: mcp.Connect failed; continuing without MCP tools", "err", err)
+	}
+	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos); err != nil {
+		return fmt.Errorf("plugins: agent rebuild: %w", err)
+	}
+	slog.Info("plugins: hot-reload complete",
+		"skills_dirs", len(contrib.SkillDirs),
+		"mcp_servers", len(contrib.MCPServers),
+		"lsp_servers", len(contrib.LSPServers),
+		"hooks", len(contrib.Hooks),
+		"commands", len(contrib.Commands),
+	)
+	return nil
+}
+
+// Snapshot returns the last-known enabled-plugin count + names for the
+// dashboard. Cheap: re-runs Load against the local filesystem only.
+func (a pluginAdapter) Snapshot(ctx context.Context) (int, []string) {
+	_, infos, err := a.mgr.Load(ctx)
+	if err != nil {
+		return 0, nil
+	}
+	names := make([]string, 0, len(infos))
+	for _, p := range infos {
+		if p.Enabled {
+			names = append(names, p.Name)
+		}
+	}
+	return len(names), names
 }
