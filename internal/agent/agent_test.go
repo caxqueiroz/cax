@@ -111,7 +111,7 @@ func TestBuildIncludesLSPToolsAndStatus(t *testing.T) {
 		{Name: "gopls", Languages: []string{"go"}, Running: true},
 		{Name: "pyright", Languages: []string{"python"}, Running: false, LastError: "not found"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, nil, lspTools, lspInfos)
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, nil, lspTools, lspInfos, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestStatusReportsMCPServerNames(t *testing.T) {
 		{Name: "git", Transport: "stdio", Connected: true, ToolCount: 3},
 		{Name: "github", Transport: "http", Connected: false, LastError: "auth"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos, nil, nil)
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRebuildSwapsTools(t *testing.T) {
 	if !hasOld {
 		t.Fatalf("expected old_tool in initial status: %v", st1.ToolNames)
 	}
-	if err := a.Rebuild(context.Background(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil, nil, nil); err != nil {
+	if err := a.Rebuild(context.Background(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil, nil, nil, nil); err != nil {
 		t.Fatalf("Rebuild: %v", err)
 	}
 	st2, _ := a.Status(context.Background())

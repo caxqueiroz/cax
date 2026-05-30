@@ -2,11 +2,13 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/hooks"
 	"github.com/caxqueiroz/czcli/internal/memory"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
@@ -16,12 +18,14 @@ import (
 var gatedTools = map[string]bool{"Bash": true, "Write": true, "Edit": true}
 
 // hookDeps bundles everything the memory hooks need. Built once in Build and
-// shared by all three hook closures.
+// shared by all hook closures. hooksDisp is nil-safe: when no plugin contributes
+// hooks the dispatcher itself is nil and all Dispatch calls are no-ops.
 type hookDeps struct {
 	store        *memory.Store
 	cfg          *config.Config
 	dialog       dive.Dialog
 	summarizerFn func() memory.Summarizer
+	hooksDisp    *hooks.Dispatcher
 }
 
 // sessionID reads the session id placed in HookContext.Values by Handle.
@@ -43,7 +47,20 @@ func (d *hookDeps) budgetOf() int {
 // preGeneration loads the rolling summary + recent window and the top-k
 // semantic recall for the user's query, and injects them ahead of the input.
 // Memory is best-effort: any failure logs and degrades without aborting.
+//
+// Plugin hooks for EventUserPromptSubmit fire FIRST: a block aborts the turn
+// (returns a *dive.HookAbortError) before memory injection runs.
 func (d *hookDeps) preGeneration(ctx context.Context, hctx *dive.HookContext) error {
+	if d.hooksDisp != nil {
+		payload := map[string]any{
+			"session_id": sessionID(hctx),
+			"prompt":     lastUserText(hctx.Messages),
+		}
+		if r := d.hooksDisp.Dispatch(ctx, hooks.EventUserPromptSubmit, payload); r.Block {
+			return dive.AbortGeneration(r.Feedback)
+		}
+	}
+
 	sid := sessionID(hctx)
 	budget := d.budgetOf()
 
@@ -82,14 +99,26 @@ func (d *hookDeps) preGeneration(ctx context.Context, hctx *dive.HookContext) er
 	return nil
 }
 
-// preToolUse gates Bash/Write/Edit through the permission dialog. A denial
-// returns a UserFeedbackError, which dive converts into a deny message sent to
-// the LLM (so the model can adapt instead of crashing).
+// preToolUse runs plugin EventPreToolUse hooks first (block returns a
+// *dive.UserFeedbackError so dive surfaces a Deny tool result to the model),
+// then gates Bash/Write/Edit through the permission dialog. A user denial
+// also returns a UserFeedbackError.
 func (d *hookDeps) preToolUse(ctx context.Context, hctx *dive.HookContext) error {
 	if hctx.Tool == nil {
 		return nil
 	}
 	name := hctx.Tool.Name()
+
+	if d.hooksDisp != nil {
+		payload := map[string]any{
+			"tool_name":  name,
+			"tool_input": rawJSONToMap(hctx.Call),
+		}
+		if r := d.hooksDisp.Dispatch(ctx, hooks.EventPreToolUse, payload); r.Block {
+			return dive.NewUserFeedback(r.Feedback)
+		}
+	}
+
 	if !gatedTools[name] {
 		return nil
 	}
@@ -114,9 +143,34 @@ func (d *hookDeps) preToolUse(ctx context.Context, hctx *dive.HookContext) error
 	return nil
 }
 
+// postToolUse fires after a successful tool call. Plugin hooks at this point
+// cannot block (the tool has already run) but their stdout is appended as
+// AdditionalContext so the model sees it alongside the tool's own output.
+// Matches Claude Code's PostToolUse semantics.
+func (d *hookDeps) postToolUse(ctx context.Context, hctx *dive.HookContext) error {
+	if d.hooksDisp == nil || hctx.Tool == nil {
+		return nil
+	}
+	payload := map[string]any{
+		"tool_name":  hctx.Tool.Name(),
+		"tool_input": rawJSONToMap(hctx.Call),
+	}
+	r := d.hooksDisp.Dispatch(ctx, hooks.EventPostToolUse, payload)
+	if r.Feedback != "" {
+		if hctx.AdditionalContext == "" {
+			hctx.AdditionalContext = r.Feedback
+		} else {
+			hctx.AdditionalContext = hctx.AdditionalContext + "\n\n" + r.Feedback
+		}
+	}
+	return nil
+}
+
 // postGeneration persists the user+assistant turn, embeds the assistant turn
 // into memory, records token usage, and triggers rolling summarization when the
 // window exceeds the budget. All steps are best-effort.
+//
+// Stop hooks fire last; feedback is informational only (Claude Code parity).
 func (d *hookDeps) postGeneration(ctx context.Context, hctx *dive.HookContext) error {
 	sid := sessionID(hctx)
 
@@ -163,6 +217,13 @@ func (d *hookDeps) postGeneration(ctx context.Context, hctx *dive.HookContext) e
 	if err := d.store.MaybeSummarize(ctx, sid, d.summarizerFn(), d.budgetOf()); err != nil {
 		slog.Warn("maybe summarize failed", "err", err, "session_id", sid)
 	}
+
+	if d.hooksDisp != nil {
+		payload := map[string]any{"session_id": sid}
+		if r := d.hooksDisp.Dispatch(ctx, hooks.EventStop, payload); r.Feedback != "" {
+			slog.Info("hook: stop feedback", "feedback", r.Feedback)
+		}
+	}
 	return nil
 }
 
@@ -176,4 +237,18 @@ func lastUserText(msgs []*llm.Message) string {
 		}
 	}
 	return ""
+}
+
+// rawJSONToMap parses a tool call's raw JSON input into a map for matcher +
+// envelope use. Returns nil on any parse error (matcher then sees an empty
+// command, which is the safe default).
+func rawJSONToMap(c *llm.ToolUseContent) map[string]any {
+	if c == nil || len(c.Input) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(c.Input, &m); err != nil {
+		return nil
+	}
+	return m
 }

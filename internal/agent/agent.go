@@ -14,6 +14,7 @@ import (
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/hooks"
 	"github.com/caxqueiroz/czcli/internal/lsp"
 	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
@@ -43,6 +44,7 @@ type Assistant struct {
 	subagentNames  []string
 	mcpServerNames []string
 	lspInfos       []lsp.ServerInfo
+	hooksDisp      *hooks.Dispatcher // nil-safe; populated by Build/Rebuild
 
 	mu      sync.Mutex
 	running map[string]int // running sub-agent task descriptions -> ref count
@@ -53,8 +55,9 @@ type Assistant struct {
 // the existing memory hooks. Plan 6 introduced the skills + mcpTools params;
 // Plan 8 adds lspTools (already-realized dive tools from lsp.Manager.Tools()).
 //
-// Callers that already have MCP ServerInfos or LSP ServerInfos should prefer
-// BuildWithMCPInfos.
+// Plan 9 keeps Build's signature stable: hooks plumbing flows through
+// BuildWithMCPInfos. Callers that need to register a *hooks.Dispatcher should
+// use BuildWithMCPInfos (or Rebuild for hot-reload).
 func Build(
 	ctx context.Context,
 	cfg *config.Config,
@@ -63,13 +66,15 @@ func Build(
 	skillRes *skills.LoadResult,
 	mcpTools []dive.Tool,
 ) (*Assistant, error) {
-	return BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, nil, nil, nil)
+	return BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, nil, nil, nil, nil)
 }
 
 // BuildWithMCPInfos is Build plus the MCP ServerInfos and LSP ServerInfos so
-// Status can render server names without re-querying their managers.
-// cmd/czcli/main.go uses this; Plans 7+ also use it for plugin-contributed
-// MCP + LSP servers. Plan 8 added lspTools/lspInfos additively.
+// Status can render server names without re-querying their managers, plus the
+// Plan 9 *hooks.Dispatcher that wires plugin-declared lifecycle hooks into the
+// dive agent. cmd/czcli/main.go uses this; Plans 7-9 also use it for
+// plugin-contributed contributions. Plan 8 added lspTools/lspInfos additively
+// and Plan 9 appends hooksDisp.
 func BuildWithMCPInfos(
 	ctx context.Context,
 	cfg *config.Config,
@@ -80,6 +85,7 @@ func BuildWithMCPInfos(
 	mcpInfos []mcp.ServerInfo,
 	lspTools []dive.Tool,
 	lspInfos []lsp.ServerInfo,
+	hooksDisp *hooks.Dispatcher,
 ) (*Assistant, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("agent: nil config")
@@ -94,12 +100,13 @@ func BuildWithMCPInfos(
 	}
 
 	a := &Assistant{
-		store:    store,
-		model:    model,
-		cfg:      cfg,
-		tools:    builtins,
-		skillRes: skillRes,
-		running:  make(map[string]int),
+		store:     store,
+		model:     model,
+		cfg:       cfg,
+		tools:     builtins,
+		skillRes:  skillRes,
+		running:   make(map[string]int),
+		hooksDisp: hooksDisp,
 	}
 
 	// MCP tools come from cmd/czcli/main.go via mcp.Connect; mcp.Connect is
@@ -119,6 +126,7 @@ func BuildWithMCPInfos(
 		cfg:          cfg,
 		dialog:       dialog,
 		summarizerFn: func() memory.Summarizer { return a.Summarizer() },
+		hooksDisp:    hooksDisp,
 	}
 
 	opts := dive.AgentOptions{
@@ -129,6 +137,7 @@ func BuildWithMCPInfos(
 		Hooks: dive.Hooks{
 			PreGeneration:  []dive.PreGenerationHook{deps.preGeneration},
 			PreToolUse:     []dive.PreToolUseHook{deps.preToolUse},
+			PostToolUse:    []dive.PostToolUseHook{deps.postToolUse},
 			PostGeneration: []dive.PostGenerationHook{deps.postGeneration},
 		},
 	}
@@ -152,10 +161,11 @@ func BuildWithMCPInfos(
 }
 
 // Rebuild swaps the inner *dive.Agent atomically. In-flight turns finish
-// under the existing agent; the next turn picks up the new one. Plans 7–9
+// under the existing agent; the next turn picks up the new one. Plans 7-9
 // call this after /plugin install|enable|disable mutations. Plan 8 extended
 // the signature with lspTools+lspInfos so plugin-contributed LSP servers are
-// picked up on hot-reload.
+// picked up on hot-reload; Plan 9 appends hooksDisp so the new generation of
+// plugin-declared hooks replaces the old set atomically.
 func (a *Assistant) Rebuild(
 	ctx context.Context,
 	cfg *config.Config,
@@ -164,8 +174,9 @@ func (a *Assistant) Rebuild(
 	mcpInfos []mcp.ServerInfo,
 	lspTools []dive.Tool,
 	lspInfos []lsp.ServerInfo,
+	hooksDisp *hooks.Dispatcher,
 ) error {
-	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos)
+	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp)
 	if err != nil {
 		return fmt.Errorf("agent: rebuild: %w", err)
 	}
@@ -176,6 +187,7 @@ func (a *Assistant) Rebuild(
 	a.subagentNames = next.subagentNames
 	a.mcpServerNames = next.mcpServerNames
 	a.lspInfos = next.lspInfos
+	a.hooksDisp = next.hooksDisp
 	a.cfg = cfg
 	a.buildMu.Unlock()
 	return nil
@@ -283,6 +295,7 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 	subagentNames := a.subagentNames
 	mcpServerNames := a.mcpServerNames
 	lspInfos := a.lspInfos
+	hooksDisp := a.hooksDisp
 	a.buildMu.RUnlock()
 
 	st := channel.Status{
@@ -319,6 +332,8 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 		st.LSPLanguages = lspLanguageSet(lspInfos)
 		st.LSPServers = lspServerSummaries(lspInfos)
 	}
+	// Entries() is nil-safe so this renders 0 when no plugin contributes hooks.
+	st.HookCount = len(hooksDisp.Entries())
 
 	if stats, err := a.store.Stats(ctx); err == nil {
 		st.MemSizeBytes = stats.DBSizeBytes

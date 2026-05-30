@@ -4,15 +4,22 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"io"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/hooks"
 	"github.com/caxqueiroz/czcli/internal/memory"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+}
 
 type fakeEmbedder struct{ dim int }
 
@@ -119,6 +126,81 @@ func TestPreToolUse_AllowsReadOnlyTool(t *testing.T) {
 
 	if err := deps.preToolUse(context.Background(), hctx); err != nil {
 		t.Fatalf("read-only tool should not be gated: %v", err)
+	}
+}
+
+func TestPreGenerationDispatchAbortsOnBlock(t *testing.T) {
+	store := newTestStore(t)
+	deps := testDeps(t, store)
+	deps.hooksDisp = hooks.Load([]hooks.Entry{{
+		Event:   hooks.EventUserPromptSubmit,
+		Command: []string{"/bin/sh", "-c", "echo 'policy block'; exit 1"},
+		Source:  "policy",
+	}}, discardLogger())
+
+	hctx := dive.NewHookContext()
+	hctx.Values["session_id"] = "s1"
+	hctx.Messages = []*llm.Message{llm.NewUserTextMessage("hello")}
+
+	err := deps.preGeneration(context.Background(), hctx)
+	if err == nil {
+		t.Fatal("expected preGeneration to abort on hook block, got nil")
+	}
+	if !strings.Contains(err.Error(), "policy block") {
+		t.Fatalf("expected feedback in error, got %q", err.Error())
+	}
+}
+
+func TestPreToolUseDispatchReturnsUserFeedbackOnBlock(t *testing.T) {
+	store := newTestStore(t)
+	deps := testDeps(t, store)
+	deps.hooksDisp = hooks.Load([]hooks.Entry{{
+		Event:   hooks.EventPreToolUse,
+		Matcher: hooks.Matcher{Tool: "Bash"},
+		Command: []string{"/bin/sh", "-c", "echo 'no rm -rf'; exit 1"},
+		Source:  "policy",
+	}}, discardLogger())
+
+	hctx := dive.NewHookContext()
+	hctx.Tool = dive.FuncTool("Bash", "run", func(_ context.Context, _ *struct{}) (*dive.ToolResult, error) {
+		return dive.NewToolResultText("ok"), nil
+	})
+	hctx.Call = llm.NewToolUseContent("call_1", "Bash", []byte(`{"command":"rm -rf /"}`))
+
+	err := deps.preToolUse(context.Background(), hctx)
+	if err == nil {
+		t.Fatal("expected preToolUse to deny on hook block, got nil")
+	}
+	feedback, ok := dive.IsUserFeedback(err)
+	if !ok {
+		t.Fatalf("expected UserFeedbackError, got %T: %v", err, err)
+	}
+	if !strings.Contains(feedback, "no rm -rf") {
+		t.Fatalf("expected feedback to contain hook stdout, got %q", feedback)
+	}
+}
+
+func TestPostToolUseDispatchAppendsAdditionalContext(t *testing.T) {
+	store := newTestStore(t)
+	deps := testDeps(t, store)
+	deps.hooksDisp = hooks.Load([]hooks.Entry{{
+		Event:   hooks.EventPostToolUse,
+		Matcher: hooks.Matcher{Tool: "Bash"},
+		Command: []string{"/bin/sh", "-c", "echo 'audit ok'; exit 1"},
+		Source:  "audit",
+	}}, discardLogger())
+
+	hctx := dive.NewHookContext()
+	hctx.Tool = dive.FuncTool("Bash", "run", func(_ context.Context, _ *struct{}) (*dive.ToolResult, error) {
+		return dive.NewToolResultText("ok"), nil
+	})
+	hctx.Call = llm.NewToolUseContent("call_2", "Bash", []byte(`{"command":"ls"}`))
+
+	if err := deps.postToolUse(context.Background(), hctx); err != nil {
+		t.Fatalf("postToolUse must never return error (informational), got %v", err)
+	}
+	if !strings.Contains(hctx.AdditionalContext, "audit ok") {
+		t.Fatalf("expected AdditionalContext appended, got %q", hctx.AdditionalContext)
 	}
 }
 

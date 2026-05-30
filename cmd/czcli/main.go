@@ -102,7 +102,7 @@ func run() error {
 	defer holder.closeCurrent()
 	lspTools, lspInfos := holder.current()
 
-	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos)
+	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, nil)
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
 	}
@@ -405,7 +405,7 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 	if a.lspHolder != nil {
 		lspTools, lspInfos = a.lspHolder.current()
 	}
-	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos); err != nil {
+	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, nil); err != nil {
 		return fmt.Errorf("plugins: agent rebuild: %w", err)
 	}
 	slog.Info("plugins: hot-reload complete",
