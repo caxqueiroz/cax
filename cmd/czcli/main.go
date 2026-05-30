@@ -162,6 +162,8 @@ func run() error {
 		cli.WithScheduler(scheduleAdapter{store: store, sched: sched}),
 		cli.WithPlugins(pluginsAdp),
 		cli.WithHookEntries(hookEntries),
+		cli.WithUserCommands(contrib.Commands),
+		cli.WithThemeStateFile(themeStatePath()),
 	)
 	statusFn := func(ctx context.Context) (channel.Status, error) {
 		st, err := assistant.Status(ctx)
@@ -241,6 +243,17 @@ func userThemesDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".czcli", "themes")
+}
+
+// themeStatePath returns the path Ctrl+T persists the active theme to.
+// Falls back to a process-local file when HOME is unresolvable. The CLI
+// channel writes only the "theme" field, preserving any other keys already
+// present (mirrors theme.StateFile()'s schema).
+func themeStatePath() string {
+	if p := theme.StateFile(); p != "" {
+		return p
+	}
+	return filepath.Join(os.TempDir(), "czcli-state.json")
 }
 
 // pluginsStatePath returns the default plugin state file under the user's home

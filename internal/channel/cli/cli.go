@@ -13,6 +13,7 @@ import (
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/hooks"
+	"github.com/caxqueiroz/czcli/internal/plugins"
 )
 
 // CLI satisfies channel.Channel.
@@ -25,6 +26,8 @@ type CLI struct {
 	sched          scheduleBackend
 	plugins        pluginBackend
 	hookEntries    []hooks.Entry
+	userCommands   []plugins.PluginCommand
+	themeStateFile string
 }
 
 // Option configures a CLI.
@@ -57,6 +60,19 @@ func WithHookEntries(entries []hooks.Entry) Option {
 	return func(c *CLI) { c.hookEntries = entries }
 }
 
+// WithUserCommands wires the merged user+plugin command snapshot used by the
+// Ctrl+/ help overlay. The dispatcher itself routes through the existing
+// handleCommand switch; this slice is rendering-only.
+func WithUserCommands(cmds []plugins.PluginCommand) Option {
+	return func(c *CLI) { c.userCommands = cmds }
+}
+
+// WithThemeStateFile sets the path Ctrl+T persists the active theme to.
+// Empty disables persistence (Ctrl+T still cycles in-memory).
+func WithThemeStateFile(path string) Option {
+	return func(c *CLI) { c.themeStateFile = path }
+}
+
 // New builds a CLI channel with sensible defaults.
 func New(opts ...Option) *CLI {
 	c := &CLI{
@@ -83,6 +99,8 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	m.sched = c.sched
 	m.plugins = c.plugins
 	m.hookEntries = c.hookEntries
+	m.userCommands = c.userCommands
+	m.themeStateFile = c.themeStateFile
 	pm := &programModel{
 		model:  m,
 		cli:    c,
