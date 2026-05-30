@@ -17,6 +17,7 @@ import (
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/channel/cli"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/hooks"
 	"github.com/caxqueiroz/czcli/internal/lsp"
 	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
@@ -102,7 +103,13 @@ func run() error {
 	defer holder.closeCurrent()
 	lspTools, lspInfos := holder.current()
 
-	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, nil)
+	// Build the hooks dispatcher from plugin-contributed entries. Empty list
+	// when no plugin ships hooks; the dispatcher itself is still constructed
+	// (cheap) so /hooks and Status.HookCount report a stable 0.
+	hookEntries := contribsToHookEntries(contrib.Hooks, slog.Default())
+	hooksDisp := hooks.Load(hookEntries, slog.Default())
+
+	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp)
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
 	}
@@ -130,6 +137,7 @@ func run() error {
 		cli.WithSessionID("cli"),
 		cli.WithScheduler(scheduleAdapter{store: store, sched: sched}),
 		cli.WithPlugins(pluginsAdp),
+		cli.WithHookEntries(hookEntries),
 	)
 	statusFn := func(ctx context.Context) (channel.Status, error) {
 		st, err := assistant.Status(ctx)
@@ -405,7 +413,12 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 	if a.lspHolder != nil {
 		lspTools, lspInfos = a.lspHolder.current()
 	}
-	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, nil); err != nil {
+	// Rebuild the hooks dispatcher from the fresh plugin contributions so
+	// hot-reload swaps the entry set atomically alongside skills/MCP/LSP.
+	hookEntries := contribsToHookEntries(contrib.Hooks, slog.Default())
+	hooksDisp := hooks.Load(hookEntries, slog.Default())
+
+	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp); err != nil {
 		return fmt.Errorf("plugins: agent rebuild: %w", err)
 	}
 	slog.Info("plugins: hot-reload complete",
@@ -416,6 +429,35 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 		"commands", len(contrib.Commands),
 	)
 	return nil
+}
+
+// contribsToHookEntries converts plugins.HookEntry (string Event + map matcher,
+// used in the JSON manifests) into the typed hooks.Entry the dispatcher
+// consumes. Unknown event names are skipped + logged so a malformed manifest
+// can't take the whole startup down. Lives in main.go so internal/hooks does
+// not import internal/plugins (the dispatcher only consumes typed Entries).
+func contribsToHookEntries(in []plugins.HookEntry, logger *slog.Logger) []hooks.Entry {
+	out := make([]hooks.Entry, 0, len(in))
+	for _, h := range in {
+		ev := hooks.Event(h.Event)
+		switch ev {
+		case hooks.EventUserPromptSubmit, hooks.EventPreToolUse,
+			hooks.EventPostToolUse, hooks.EventStop:
+			// ok
+		default:
+			logger.Warn("hooks: unknown event in plugin manifest, skipping",
+				"event", h.Event, "source", h.Source)
+			continue
+		}
+		out = append(out, hooks.Entry{
+			Event:          ev,
+			Matcher:        hooks.Matcher{Tool: h.Matcher["tool"], Command: h.Matcher["command"]},
+			Command:        h.Command,
+			TimeoutSeconds: h.TimeoutSeconds,
+			Source:         h.Source,
+		})
+	}
+	return out
 }
 
 // Snapshot returns the last-known enabled-plugin count + names for the
