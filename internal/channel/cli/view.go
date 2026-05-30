@@ -435,6 +435,15 @@ func (m model) View() string {
 		used++
 	}
 
+	// Welcome card sits between header and conversation on a fresh session
+	// (no history, not streaming). Art is 5 rows + 2 border + 1 trailing
+	// blank = 8 rows reserved.
+	showWelcome := len(m.history) == 0 && !m.streaming
+	const welcomeRows = 5 + 2 + 1
+	if showWelcome {
+		used += welcomeRows
+	}
+
 	convH := m.height - used
 	if convH < 4 {
 		convH = 4
@@ -444,6 +453,14 @@ func (m model) View() string {
 	parts := []string{header, "", conv, "", status, "", message}
 	if hint != "" {
 		parts = append(parts, hint)
+	}
+
+	if showWelcome {
+		welcome := m.renderWelcomeBlock(width)
+		parts = []string{header, "", welcome, "", conv, "", status, "", message}
+		if hint != "" {
+			parts = append(parts, hint)
+		}
 	}
 
 	if m.helpOpen {

@@ -70,9 +70,16 @@ func (m *model) handleCommand(line string) (string, bool, *creator.Wizard) {
 		return m.cmdReload(), false, nil
 	case "new":
 		return m.cmdNew(args)
+	case "about":
+		return m.cmdAbout(), false, nil
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new", name), false, nil
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about", name), false, nil
 	}
+}
+
+// cmdAbout returns the brand mark + tagline + active theme name.
+func (m model) cmdAbout() string {
+	return welcomeArt + "\n\n" + welcomeTagline + "\ntheme: " + theme.Active().Name
 }
 
 const newUsage = "usage: /new skill|agent|command [name]"
@@ -140,6 +147,7 @@ func (m model) renderHelpOverlay() string {
 	b.WriteString("  PgUp / PgDn      scroll viewport\n")
 	b.WriteString("\nbuilt-in commands:\n")
 	b.WriteString("  /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /quit\n")
+	b.WriteString("  /about                             show the brand mark + active theme\n")
 	b.WriteString("  /new skill|agent|command [name]   start the creator wizard\n")
 	b.WriteString("  /cancel                            cancel the active wizard\n")
 	b.WriteString("\nask in natural language; the agent calls these tools:\n")
