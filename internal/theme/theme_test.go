@@ -6,6 +6,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestRegistry(t *testing.T) {
+	reset()
+	a := &Theme{Name: "a"}
+	b := &Theme{Name: "b"}
+	Register(a)
+	Register(b)
+	got, err := Get("a")
+	if err != nil || got != a {
+		t.Fatalf("Get(a) = %v, %v", got, err)
+	}
+	names := List()
+	if len(names) != 2 || names[0] != "a" || names[1] != "b" {
+		t.Fatalf("List() = %v", names)
+	}
+	Set(a)
+	if Active() != a {
+		t.Fatalf("Active() = %v want a", Active())
+	}
+	next := Cycle()
+	if next != b || Active() != b {
+		t.Fatalf("Cycle() = %v active=%v", next, Active())
+	}
+	if _, err := Get("missing"); err == nil {
+		t.Fatalf("Get(missing) should error")
+	}
+}
+
 func TestThemeYAMLParses(t *testing.T) {
 	src := []byte(`name: t1
 foreground: "#ffffff"
