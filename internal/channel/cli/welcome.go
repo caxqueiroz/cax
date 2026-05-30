@@ -40,8 +40,11 @@ func (m model) renderWelcomeBlock(width int) string {
 	version := s.dim.Render("cax v" + Version)
 	hint := s.dim.Render(welcomeHint)
 
+	// Info column (3 rows) is shorter than the art (5 rows). Joining at
+	// lipgloss.Center makes lipgloss pad above and below the info block so
+	// the greeting sits at the vertical mid-line of the art.
 	infoBlock := lipgloss.JoinVertical(lipgloss.Left, greet, version, hint)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, artStyled, "   ", infoBlock)
+	body := lipgloss.JoinHorizontal(lipgloss.Center, artStyled, "   ", infoBlock)
 
 	inner := width - 4 // 2 indent + 2 border
 	if inner < 20 {
