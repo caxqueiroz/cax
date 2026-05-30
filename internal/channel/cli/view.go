@@ -277,7 +277,10 @@ func (m model) renderStatusRow(_ int) string {
 
 	mid := s.dim.Render(" · ")
 	tokens := s.statusLabel.Render("1d") + " " + s.statusValue.Render(humanizeTokens(day))
-	mem := s.statusLabel.Render("mem") + " " + s.statusValue.Render(humanizeBytes(st.MemSizeBytes))
+	// "mem" is the agent's growing long-term memory: the count of semantic
+	// vectors in the recall store (each turn embeds a chunk). Context-window
+	// usage is shown separately by the buffer dots + percentage.
+	mem := s.statusLabel.Render("mem") + " " + s.statusValue.Render(humanizeTokens(st.MemoryCount))
 	cwd := s.statusLabel.Render("cwd") + " " + s.statusValue.Render(displayCWD(st.CWD, 24))
 	tools := s.statusLabel.Render("🔧") + " " + s.statusValue.Render(fmt.Sprintf("%d", len(st.ToolNames)))
 
@@ -432,18 +435,6 @@ func (m model) View() string {
 		used++
 	}
 
-	// On a fresh session (no history, not streaming) drop the welcome card
-	// between the header and the conversation box. The card is 5 rows tall
-	// (border + 3 content rows + border) plus a 1-row blank separator, so
-	// reserve 6 rows from the conversation box to keep the layout math
-	// honest. Once any history exists or a turn is in flight, the card
-	// disappears.
-	showWelcome := len(m.history) == 0 && !m.streaming
-	const welcomeRows = 5 + 1
-	if showWelcome {
-		used += welcomeRows
-	}
-
 	convH := m.height - used
 	if convH < 4 {
 		convH = 4
@@ -453,14 +444,6 @@ func (m model) View() string {
 	parts := []string{header, "", conv, "", status, "", message}
 	if hint != "" {
 		parts = append(parts, hint)
-	}
-
-	if showWelcome {
-		welcome := m.renderWelcomeBlock(width)
-		parts = []string{header, "", welcome, "", conv, "", status, "", message}
-		if hint != "" {
-			parts = append(parts, hint)
-		}
 	}
 
 	if m.helpOpen {

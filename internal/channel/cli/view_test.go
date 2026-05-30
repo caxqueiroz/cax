@@ -243,40 +243,6 @@ func TestViewFallbackOnTinyHeight(t *testing.T) {
 	}
 }
 
-// TestViewWelcomeCardOnEmptyHistory checks that the welcome card with the
-// ASCII art appears on first render (empty history, not streaming), and
-// disappears once any turn lands in history.
-func TestViewWelcomeCardOnEmptyHistory(t *testing.T) {
-	theme.LoadBuiltins()
-	th, _ := theme.Get("default-dark")
-	theme.Set(th)
-
-	m := newModel(80, 24)
-	m.status = statusFixture()
-	m.hasStatus = true
-	m.refreshViewport()
-	out := stripANSI(m.View())
-	if !strings.Contains(out, "welcome") {
-		t.Errorf("View on empty history missing welcome card title: %q", out)
-	}
-	if !strings.Contains(out, "personal AI assistant") {
-		t.Errorf("View on empty history missing welcome tagline: %q", out)
-	}
-	// First row of the ASCII art is the most stable marker — assert one of
-	// its distinctive glyph runs is in the output.
-	if !strings.Contains(out, "╭─╮") {
-		t.Errorf("View on empty history missing welcome art glyphs: %q", out)
-	}
-
-	// Once a turn has happened the welcome card must go away.
-	m.history = []historyEntry{{who: "you", text: "hey"}, {who: "bot", text: "hi!"}}
-	m.refreshViewport()
-	out2 := stripANSI(m.View())
-	if strings.Contains(out2, "welcome") && strings.Contains(out2, "personal AI assistant") {
-		t.Errorf("welcome card lingered after history: %q", out2)
-	}
-}
-
 // stripANSI removes ANSI escape sequences from s so substring assertions
 // on raw glyphs survive across themed styles wrapping the same text.
 func stripANSI(s string) string {
