@@ -25,25 +25,27 @@ func buildWithSubagents(t *testing.T, dir string) *Assistant {
 	return a
 }
 
-func TestAugmentTools_AddsTaskAndTaskStop(t *testing.T) {
-	a := buildWithSubagents(t, t.TempDir()) // empty dir -> built-ins + general-purpose
+func TestAugmentTools_AddsAgentAndTaskStop(t *testing.T) {
+	a := buildWithSubagents(t, t.TempDir()) // empty dir -> built-in personas only
 	names := map[string]bool{}
 	for _, tl := range a.tools {
 		names[tl.Name()] = true
 	}
-	if !names["Task"] {
-		t.Fatal("Task tool missing when subagents enabled")
+	if !names["Agent"] {
+		t.Fatal("Agent tool missing when subagents enabled")
 	}
 	if !names["TaskStop"] {
 		t.Fatal("TaskStop tool missing when subagents enabled")
 	}
-	// The built-in general-purpose persona must be present.
+	// The built-in personas must be present (GeneralPurpose, Explore, Plan).
 	got := map[string]bool{}
 	for _, n := range a.subagentNames {
 		got[n] = true
 	}
-	if !got["general-purpose"] {
-		t.Fatalf("general-purpose missing from catalog: %v", a.subagentNames)
+	for _, want := range []string{"GeneralPurpose", "Explore", "Plan"} {
+		if !got[want] {
+			t.Fatalf("%s missing from catalog: %v", want, a.subagentNames)
+		}
 	}
 }
 
@@ -68,8 +70,8 @@ func TestAugmentTools_LoadsFileLoaderDefinitions(t *testing.T) {
 func TestAugmentTools_DisabledByDefault(t *testing.T) {
 	a, _ := buildTestAssistant(t, "ok") // Subagents.Enabled = false
 	for _, tl := range a.tools {
-		if tl.Name() == "Task" {
-			t.Fatal("Task tool present though subagents disabled")
+		if tl.Name() == "Agent" {
+			t.Fatal("Agent tool present though subagents disabled")
 		}
 	}
 	if len(a.subagentNames) != 0 {

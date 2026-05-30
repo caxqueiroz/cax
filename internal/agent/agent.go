@@ -98,9 +98,10 @@ func Build(ctx context.Context, cfg *config.Config, store *memory.Store, model l
 	return a, nil
 }
 
-// subagentToolName is the tool the Task tool exposes for spawning sub-agents.
-// Tracking its start/end events drives RunningSubagents.
-const subagentToolName = "Task"
+// subagentToolName is the tool the orchestration package exposes for spawning
+// sub-agents (renamed from "Task" in v1.5 to "Agent" in v1.7). Tracking its
+// start/end events drives RunningSubagents.
+const subagentToolName = "Agent"
 
 // Handle is a channel.Handler: it runs one turn through dive with streaming and
 // forwards text deltas and tool events to emit, returning the final reply.

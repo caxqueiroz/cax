@@ -27,10 +27,10 @@ github.com/clipperhouse/stringish v0.1.1/go.mod h1:v/WhFtE1q0ovMta2+m+UbpZ+2/HEX
 github.com/clipperhouse/uax29/v2 v2.5.0 h1:x7T0T4eTHDONxFJsL94uKNKPHrclyFI0lm7+w94cO8U=
 github.com/clipperhouse/uax29/v2 v2.5.0/go.mod h1:Wn1g7MK6OoeDT0vL+Q0SQLDz/KpfsVRgg6W7ihQeh4g=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
-github.com/deepnoodle-ai/dive v1.5.0 h1:OWFr/wk7EmaLtUqShsNUsK9qgch5GBWiaeeoprhRFqU=
-github.com/deepnoodle-ai/dive v1.5.0/go.mod h1:oiKYJZY2JEgqv10nqJ9eEvsAWArRBeoUz8gyYUGKE74=
-github.com/deepnoodle-ai/dive/providers/openai v1.5.0 h1:sJoz7NnuIQPY0+dJHIAFrCSaqXH3bZ4cY2RyAnTHphI=
-github.com/deepnoodle-ai/dive/providers/openai v1.5.0/go.mod h1:6Iuy9PrmIOtgeqoWbpIj+fiYRber5bZH693uWP1KUVo=
+github.com/deepnoodle-ai/dive v1.7.0 h1:2/BFGs9HyJw3XAHncYGsTp7ZeHjjWgpFob+pk2MMdTQ=
+github.com/deepnoodle-ai/dive v1.7.0/go.mod h1:oiKYJZY2JEgqv10nqJ9eEvsAWArRBeoUz8gyYUGKE74=
+github.com/deepnoodle-ai/dive/providers/openai v1.7.0 h1:lJpIaKsTKyxr63iadWOoYq2C0Ett4YsM1u0GMlBEt7I=
+github.com/deepnoodle-ai/dive/providers/openai v1.7.0/go.mod h1:bZcMLzh8castdLKXnimap9BhWcfHPf0MvCPDXxAR5CQ=
 github.com/deepnoodle-ai/wonton v0.0.34 h1:0jE1KtbwZkKPuoxnV0CdYWrQdnYO+r3O3jWnFvZgV40=
 github.com/deepnoodle-ai/wonton v0.0.34/go.mod h1:rQ484HIdk0XfBACtcBuLDMTfn3keow1DspiXZv4IlL8=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
