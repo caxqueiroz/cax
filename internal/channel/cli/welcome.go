@@ -1,6 +1,11 @@
 package cli
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"os/user"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // welcomeArt is the brand mark printed in the welcome card and by /about.
 // Five rows of figlet "graffiti"-style block letters spelling "cax".
@@ -10,27 +15,33 @@ const welcomeArt = ` ____  ____ ___  _
 |  \__| |-|| /  \
 \____/\_/ \|/__/\\`
 
-// welcomeTagline is shown next to the art in the welcome card and on its own
-// line in /about.
-const welcomeTagline = "personal AI assistant"
+// Version is the binary's release tag. Override via
+// `go build -ldflags "-X github.com/caxqueiroz/cax/internal/channel/cli.Version=1.2.3"`.
+var Version = "dev"
 
-// welcomeHint sits below the art in the welcome card; one-line summary of the
-// fastest things a brand-new user can try.
-const welcomeHint = "type a message · /help · /theme · /new"
+// welcomeHint sits below the user info in the welcome card; one-line summary
+// of the fastest things a brand-new user can try.
+const welcomeHint = "type a message · /help · /theme · /new · /code"
 
 // renderWelcomeBlock builds the labeled welcome card: art on the left,
-// tagline on the first content row, hint on the last. Width is the terminal
-// width minus the global 2-space indent.
+// per-session greeting (username + local date/time) and version on the right,
+// followed by the quick-start hint.
 func (m model) renderWelcomeBlock(width int) string {
 	s := styles()
 	artStyled := s.accent.Render(welcomeArt)
-	tagline := s.dim.Render(welcomeTagline)
+
+	uname := "you"
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		uname = u.Username
+	}
+	when := time.Now().Format("Mon 02 Jan · 15:04")
+
+	greet := s.fg.Bold(true).Render("hello, "+uname) + s.dim.Render("  ·  "+when)
+	version := s.dim.Render("cax v" + Version)
 	hint := s.dim.Render(welcomeHint)
 
-	// Two columns: art (fixed width) on the left, info (tagline + blank +
-	// hint, vertically stacked) on the right. lipgloss handles alignment.
-	infoBlock := lipgloss.JoinVertical(lipgloss.Left, tagline, "", hint)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, artStyled, "  ", infoBlock)
+	infoBlock := lipgloss.JoinVertical(lipgloss.Left, greet, version, hint)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, artStyled, "   ", infoBlock)
 
 	inner := width - 4 // 2 indent + 2 border
 	if inner < 20 {

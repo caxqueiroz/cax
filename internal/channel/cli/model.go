@@ -120,6 +120,10 @@ type submitMsg struct{ line string }
 // snapshot out of band; the pure model treats it as a no-op.
 type statusRequestMsg struct{}
 
+// sysHistoryMsg appends a one-line sys notice to the conversation. Used by
+// the /code viewer-exit callback so the transcript records what was opened.
+type sysHistoryMsg struct{ text string }
+
 // model is the bubbletea model for the CLI channel.
 type model struct {
 	width  int
@@ -159,6 +163,11 @@ type model struct {
 	// completion tracks the live slash-command autocomplete dropdown. Empty
 	// matches = no dropdown visible.
 	completion completionState
+
+	// pendingExec is a tea.Cmd queued by a slash command (e.g. /code) that
+	// needs to suspend the TUI to run an external program. The dispatch
+	// site picks it up after handleCommand returns and clears the field.
+	pendingExec tea.Cmd
 
 	// sessionStart is set in newModel and used by the status row's `up N`
 	// timer. turnStart is the wall clock at submit; turnDone computes the
@@ -356,6 +365,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cycleTheme()
 			m.refreshViewport()
 			return m, nil
+		case tea.KeyCtrlE:
+			// /code shortcut — open the last assistant reply's code in the
+			// pager so the user can use the terminal's native mouse to
+			// select & copy.
+			out, _, _ := m.handleCommand("/code")
+			if out != "" {
+				m.history = append(m.history, historyEntry{who: "sys", text: out})
+				m.refreshViewport()
+			}
+			if cmd := m.pendingExec; cmd != nil {
+				m.pendingExec = nil
+				return m, cmd
+			}
+			return m, nil
 		case tea.KeyEnter:
 			if msg.Alt {
 				// Alt+Enter = newline (multi-line input). Bubbletea v1.3.10
@@ -427,6 +450,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// band; the pure model treats it as a no-op.
 		return m, nil
 
+	case sysHistoryMsg:
+		// Posted from external-program exit callbacks (/code etc.) so the
+		// transcript records what was opened.
+		m.history = append(m.history, historyEntry{who: "sys", text: msg.text})
+		m.refreshViewport()
+		return m, nil
+
 	case spinner.TickMsg:
 		// Animate while waiting for the assistant's reply; stop once streaming ends.
 		if !m.streaming {
@@ -482,6 +512,12 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		if out != "" {
 			m.history = append(m.history, historyEntry{who: "sys", text: out})
 			m.refreshViewport()
+		}
+		// A slash command may have queued an external program (e.g. /code).
+		// Pick it up, clear, and run it — the TUI suspends until it exits.
+		if cmd := m.pendingExec; cmd != nil {
+			m.pendingExec = nil
+			return m, cmd
 		}
 		return m, nil
 	}

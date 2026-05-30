@@ -74,9 +74,80 @@ func (m *model) handleCommand(line string) (string, bool, *creator.Wizard) {
 		return m.cmdAbout(), false, nil
 	case "permissions":
 		return m.cmdPermissions(args), false, nil
+	case "code":
+		return m.cmdCode(args), false, nil
 	default:
 		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about /permissions", name), false, nil
 	}
+}
+
+// cmdCode opens code from the most recent assistant reply in the user's pager
+// (or $EDITOR) so it can be selected, copied, or edited with the terminal's
+// native mouse — bubbletea's mouse-cell-motion blocks drag-to-select inside
+// the TUI. Usage:
+//
+//	/code           - opens the last fenced code block, or all of them when
+//	                  the reply has multiple
+//	/code <N>       - opens the N-th code block (1-based)
+//	/code all       - opens every code block in one file
+func (m *model) cmdCode(args string) string {
+	last := m.lastBotEntry()
+	if last == nil {
+		return "code: no assistant reply yet"
+	}
+	blocks := extractCodeBlocks(last.text)
+	if len(blocks) == 0 {
+		return "code: no fenced code blocks in the last reply"
+	}
+	sub := strings.ToLower(strings.TrimSpace(args))
+	var payload string
+	var lang string
+	var label string
+	switch sub {
+	case "", "all":
+		// Multiple blocks → concatenate with a header per block; single
+		// block → just the body. Tag with the first block's language for
+		// the file extension.
+		if len(blocks) == 1 {
+			payload = blocks[0].Code
+			lang = blocks[0].Lang
+			label = "code block"
+		} else {
+			var sb strings.Builder
+			for i, b := range blocks {
+				if i > 0 {
+					sb.WriteString("\n\n")
+				}
+				fmt.Fprintf(&sb, "// --- block %d", i+1)
+				if b.Lang != "" {
+					fmt.Fprintf(&sb, " (%s)", b.Lang)
+				}
+				sb.WriteString(" ---\n")
+				sb.WriteString(b.Code)
+			}
+			payload = sb.String()
+			lang = blocks[0].Lang
+			label = fmt.Sprintf("%d code blocks", len(blocks))
+		}
+	default:
+		var n int
+		if _, err := fmt.Sscanf(sub, "%d", &n); err != nil || n < 1 || n > len(blocks) {
+			return fmt.Sprintf("code: bad index %q; usage: /code [N|all] (%d block(s) available)", sub, len(blocks))
+		}
+		payload = blocks[n-1].Code
+		lang = blocks[n-1].Lang
+		label = fmt.Sprintf("code block %d", n)
+	}
+	path, err := writeScratchFile(payload, lang)
+	if err != nil {
+		return fmt.Sprintf("code: %v", err)
+	}
+	bin, opts := resolveCodeViewer()
+	if bin == "" {
+		return fmt.Sprintf("code: wrote %s — set $PAGER or $EDITOR to open it automatically", path)
+	}
+	m.pendingExec = teaExecProcess(bin, append(opts, path), label, path)
+	return ""
 }
 
 // cmdPermissions toggles or reports the runtime permission-confirm flag.
@@ -105,9 +176,9 @@ func (m model) cmdPermissions(args string) string {
 	}
 }
 
-// cmdAbout returns the brand mark + tagline + active theme name.
+// cmdAbout returns the brand mark + version + active theme name.
 func (m model) cmdAbout() string {
-	return welcomeArt + "\n\n" + welcomeTagline + "\ntheme: " + theme.Active().Name
+	return welcomeArt + "\n\ncax v" + Version + "\ntheme: " + theme.Active().Name
 }
 
 const newUsage = "usage: /new skill|agent|command [name]"
