@@ -292,10 +292,11 @@ func (m model) renderStatusRow(_ int) string {
 
 	mid := s.dim.Render(" · ")
 	tokens := s.statusLabel.Render("1d") + " " + s.statusValue.Render(humanizeTokens(day))
-	// "mem" is the agent's growing long-term memory: the count of semantic
-	// vectors in the recall store (each turn embeds a chunk). Context-window
-	// usage is shown separately by the buffer dots + percentage.
-	mem := s.statusLabel.Render("mem") + " " + s.statusValue.Render(humanizeTokens(st.MemoryCount))
+	// "recall" is the agent's growing long-term memory: the count of semantic
+	// vectors embedded from past turns and available to retrieval. NOT the
+	// app's RAM/disk footprint — context-window usage is shown separately by
+	// the buffer dots + percentage.
+	mem := s.statusLabel.Render("recall") + " " + s.statusValue.Render(humanizeTokens(st.MemoryCount))
 	cwd := s.statusLabel.Render("cwd") + " " + s.statusValue.Render(displayCWD(st.CWD, 24))
 	uptime := ""
 	if !m.sessionStart.IsZero() {

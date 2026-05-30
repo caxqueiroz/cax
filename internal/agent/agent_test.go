@@ -366,7 +366,7 @@ func TestStatus_ReportsModelAndTools(t *testing.T) {
 func TestSummarizer_UsesModel(t *testing.T) {
 	a, model := buildTestAssistant(t, "ignored")
 	model.replyText = "a concise summary"
-	got, err := a.Summarizer().Summarize(context.Background(), []memory.Message{
+	got, err := a.Summarizer().Summarize(context.Background(), "", []memory.Message{
 		{Role: memory.RoleUser, Content: "long conversation about cats"},
 		{Role: memory.RoleAssistant, Content: "yes cats are great"},
 	})

@@ -291,6 +291,16 @@ func (a *Assistant) Handle(ctx context.Context, msg channel.Message, emit channe
 		dive.WithInput(msg.Text),
 		dive.WithValue("session_id", msg.SessionID),
 		dive.WithValue("user_input", msg.Text),
+		// Per-turn closure the PostGeneration hook calls after summarisation.
+		// The hook hands us (messages_summarised, chunk_tokens); we surface
+		// a sys notice through the channel so the TUI can render it after
+		// the bot reply.
+		dive.WithValue("emit_summarized", func(msgs, tokens int) {
+			emit(channel.StreamEvent{
+				Type: "summarized",
+				Text: fmt.Sprintf("compacted %d messages (~%d tokens) into the summary", msgs, tokens),
+			})
+		}),
 		dive.WithEventCallback(callback),
 	)
 	if err != nil {
@@ -478,13 +488,19 @@ type modelSummarizer struct {
 	model llm.StreamingLLM
 }
 
-const summarizePrompt = "Summarize the following conversation concisely, preserving facts, decisions, names, and any details worth remembering. Output only the summary."
+const summarizePrompt = "You are folding new conversation into an existing summary. Output ONLY the new, single summary text — concise, preserving facts, decisions, names, and any details worth remembering from both the prior summary (if any) and the new messages."
 
-func (s modelSummarizer) Summarize(ctx context.Context, msgs []memory.Message) (string, error) {
+func (s modelSummarizer) Summarize(ctx context.Context, priorSummary string, msgs []memory.Message) (string, error) {
 	if len(msgs) == 0 {
-		return "", nil
+		return priorSummary, nil
 	}
 	var sb strings.Builder
+	if strings.TrimSpace(priorSummary) != "" {
+		sb.WriteString("PRIOR SUMMARY (compresses earlier turns; preserve its key facts in the new summary):\n")
+		sb.WriteString(priorSummary)
+		sb.WriteString("\n\n")
+	}
+	sb.WriteString("NEW MESSAGES TO FOLD IN:\n")
 	for _, m := range msgs {
 		sb.WriteString(string(m.Role))
 		sb.WriteString(": ")

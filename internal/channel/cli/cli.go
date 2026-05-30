@@ -159,6 +159,7 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 // runTurn executes one turn: it calls handle with an EventSink that forwards
 // stream events as tea messages, then sends turnDoneMsg and a fresh status.
 func (c *CLI) runTurn(ctx context.Context, send sender, handle channel.Handler, status channel.StatusFunc, line string) {
+	var summarized string
 	emit := func(ev channel.StreamEvent) {
 		switch ev.Type {
 		case "text":
@@ -169,10 +170,15 @@ func (c *CLI) runTurn(ctx context.Context, send sender, handle channel.Handler, 
 			send(subagentEventMsg{kind: ev.Type, name: ev.Text})
 		case "error":
 			send(streamDeltaMsg{text: "\n[error] " + ev.Text})
+		case "summarized":
+			// Buffered and shipped with turnDoneMsg so the sys notice
+			// renders AFTER the bot reply (chronologically correct: the
+			// hook fires once the reply is complete).
+			summarized = ev.Text
 		}
 	}
 	reply, err := handle(ctx, channel.Message{SessionID: c.sessionID, Text: line}, emit)
-	send(turnDoneMsg{reply: reply.Text, err: err})
+	send(turnDoneMsg{reply: reply.Text, err: err, summarized: summarized})
 	if st, serr := status(ctx); serr == nil {
 		send(statusMsg{status: st})
 	}

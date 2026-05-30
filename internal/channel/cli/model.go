@@ -98,9 +98,12 @@ type subagentEventMsg struct {
 }
 
 // turnDoneMsg signals the worker finished a turn with a final reply or error.
+// summarized, when non-empty, holds the sys notice text emitted by the
+// agent's PostGeneration hook if memory compaction fired this turn.
 type turnDoneMsg struct {
-	reply string
-	err   error
+	reply      string
+	err        error
+	summarized string
 }
 
 // statusMsg delivers a fresh dashboard snapshot.
@@ -398,6 +401,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				text = m.stream
 			}
 			m.history = append(m.history, historyEntry{who: "bot", text: text, duration: dur})
+		}
+		if msg.summarized != "" {
+			// Render the memory-compaction notice after the bot reply so the
+			// order in the transcript matches reality (model finished, then
+			// the hook condensed older messages).
+			m.history = append(m.history, historyEntry{who: "sys", text: "✂ " + msg.summarized})
 		}
 		m.stream = ""
 		m.refreshViewport()

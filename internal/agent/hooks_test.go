@@ -41,7 +41,7 @@ func (e *fakeEmbedder) Embed(_ context.Context, texts []string) ([][]float32, er
 // noSummarizer is a memory.Summarizer that returns a fixed string.
 type noSummarizer struct{}
 
-func (noSummarizer) Summarize(_ context.Context, _ []memory.Message) (string, error) {
+func (noSummarizer) Summarize(_ context.Context, _ string, _ []memory.Message) (string, error) {
 	return "SUMMARY", nil
 }
 

@@ -215,8 +215,15 @@ func (d *hookDeps) postGeneration(ctx context.Context, hctx *dive.HookContext) e
 		}
 	}
 
-	if err := d.store.MaybeSummarize(ctx, sid, d.summarizerFn(), d.budgetOf()); err != nil {
+	if rep, err := d.store.MaybeSummarize(ctx, sid, d.summarizerFn(), d.budgetOf()); err != nil {
 		slog.Warn("maybe summarize failed", "err", err, "session_id", sid)
+	} else if rep.ChunkMessages > 0 {
+		// A summary was just written. Surface a sys notice via the per-turn
+		// emit callback the assistant stashed in HookContext.Values so the
+		// UI can render "✂ summarised N messages" after the bot reply.
+		if emit, ok := hctx.Values["emit_summarized"].(func(int, int)); ok {
+			emit(rep.ChunkMessages, rep.ChunkTokens)
+		}
 	}
 
 	if d.hooksDisp != nil {

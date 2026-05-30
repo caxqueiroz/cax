@@ -209,7 +209,7 @@ func (m model) cmdStats() string {
 	fmt.Fprintf(&b, "model:   %s:%s\n", s.Provider, s.Model)
 	fmt.Fprintf(&b, "history: buffer %s/%s (%d%%) — in-memory turn budget; older turns summarized once this fills\n", humanizeTokensTenths(s.ContextTokens), humanizeTokensTenths(s.ContextBudget), pctOf(s.ContextTokens, s.ContextBudget))
 	fmt.Fprintf(&b, "tokens:  1d %s · 1w %s · 1m %s\n", humanizeTokens(day), humanizeTokens(week), humanizeTokens(month))
-	fmt.Fprintf(&b, "memory:  mem %s · %d messages · %d vectors\n", humanizeBytes(s.MemSizeBytes), s.MessageCount, s.MemoryCount)
+	fmt.Fprintf(&b, "recall:  %d vectors · %d messages · db %s on disk\n", s.MemoryCount, s.MessageCount, humanizeBytes(s.MemSizeBytes))
 	fmt.Fprintf(&b, "tools:   %d · subagents %d", len(s.ToolNames), len(s.SubagentNames))
 	return b.String()
 }

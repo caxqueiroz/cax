@@ -97,7 +97,7 @@ func TestStatusRowUsesBufferLabel(t *testing.T) {
 	m.status = statusFixture()
 	m.hasStatus = true
 	row := m.renderStatusRow(80)
-	for _, want := range []string{"claude-opus", "✓", "buffer", "76%", "1d", "mem", "cwd", "🔧"} {
+	for _, want := range []string{"claude-opus", "✓", "buffer", "76%", "1d", "recall", "cwd", "🔧"} {
 		if !strings.Contains(row, want) {
 			t.Errorf("status row missing %q\n%s", want, row)
 		}
@@ -192,7 +192,7 @@ func TestViewIncludesAllRegions(t *testing.T) {
 	out := m.View()
 	// After header removal: top-level chrome is conv + status + msg. The brand
 	// only appears in the welcome card on empty history.
-	for _, want := range []string{"conversation", "message", "buffer", "❯", "claude-opus", "1d", "mem"} {
+	for _, want := range []string{"conversation", "message", "buffer", "❯", "claude-opus", "1d", "recall"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q", want)
 		}

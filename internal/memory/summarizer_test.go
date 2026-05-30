@@ -12,7 +12,7 @@ type fakeSummarizer struct {
 	saw   int
 }
 
-func (f *fakeSummarizer) Summarize(_ context.Context, msgs []Message) (string, error) {
+func (f *fakeSummarizer) Summarize(_ context.Context, _ string, msgs []Message) (string, error) {
 	f.calls++
 	f.saw = len(msgs)
 	parts := make([]string, len(msgs))
@@ -29,7 +29,7 @@ func TestMaybeSummarizeUnderBudgetNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := &fakeSummarizer{}
-	if err := st.MaybeSummarize(ctx, "s1", fs, 8000); err != nil {
+	if _, err := st.MaybeSummarize(ctx, "s1", fs, 8000); err != nil {
 		t.Fatalf("MaybeSummarize: %v", err)
 	}
 	if fs.calls != 0 {
@@ -47,7 +47,7 @@ func TestMaybeSummarizeOverBudgetWritesSummary(t *testing.T) {
 		}
 	}
 	fs := &fakeSummarizer{}
-	if err := st.MaybeSummarize(ctx, "s1", fs, 8); err != nil {
+	if _, err := st.MaybeSummarize(ctx, "s1", fs, 8); err != nil {
 		t.Fatalf("MaybeSummarize: %v", err)
 	}
 	if fs.calls != 1 {
@@ -80,11 +80,11 @@ func TestMaybeSummarizeIdempotentByCoverage(t *testing.T) {
 		}
 	}
 	fs := &fakeSummarizer{}
-	if err := st.MaybeSummarize(ctx, "s1", fs, 8); err != nil {
+	if _, err := st.MaybeSummarize(ctx, "s1", fs, 8); err != nil {
 		t.Fatal(err)
 	}
 	// Second call with no new messages beyond coverage -> no new summary.
-	if err := st.MaybeSummarize(ctx, "s1", fs, 8); err != nil {
+	if _, err := st.MaybeSummarize(ctx, "s1", fs, 8); err != nil {
 		t.Fatal(err)
 	}
 	if fs.calls != 1 {
