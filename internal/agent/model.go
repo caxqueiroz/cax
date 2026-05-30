@@ -34,12 +34,31 @@ type ActiveReporter interface {
 // fallbackLLM wraps an ordered list of providers, advancing to the next on a
 // retryable error. If all fail, it returns the last error. It tracks the index
 // of the provider that served the most recent successful call so the dashboard
-// can show a fallback indicator.
+// can show a fallback indicator. modelIDs holds each provider's configured
+// model string (e.g. "gpt-5.5") so the status row can surface the actual model
+// rather than the provider name.
 type fallbackLLM struct {
 	providers []llm.StreamingLLM
+	modelIDs  []string
 
 	mu          sync.Mutex
 	activeIndex int
+}
+
+// ActiveModel returns the model ID configured for the currently-active
+// provider (e.g. "gpt-5.5"), falling back to the provider name when no model
+// was recorded. With no providers it returns "".
+func (f *fallbackLLM) ActiveModel() string {
+	f.mu.Lock()
+	i := f.activeIndex
+	f.mu.Unlock()
+	if i < 0 || i >= len(f.providers) {
+		return ""
+	}
+	if i < len(f.modelIDs) && f.modelIDs[i] != "" {
+		return f.modelIDs[i]
+	}
+	return f.providers[i].Name()
 }
 
 // Name returns the first provider's name, or "fallback" if empty.
@@ -146,6 +165,7 @@ func BuildModel(cfg *config.Config) (llm.StreamingLLM, error) {
 		return nil, fmt.Errorf("agent: at least one provider is required")
 	}
 	providers := make([]llm.StreamingLLM, 0, len(cfg.Providers))
+	modelIDs := make([]string, 0, len(cfg.Providers))
 	for i, pc := range cfg.Providers {
 		if !pc.IsEnabled() {
 			continue
@@ -167,9 +187,10 @@ func BuildModel(cfg *config.Config) (llm.StreamingLLM, error) {
 		default:
 			return nil, fmt.Errorf("agent: providers[%d]: unknown provider %q (want bedrock|openai)", i, pc.Name)
 		}
+		modelIDs = append(modelIDs, pc.Model)
 	}
 	if len(providers) == 0 {
 		return nil, fmt.Errorf("agent: all providers are disabled; set enabled: true on at least one")
 	}
-	return &fallbackLLM{providers: providers}, nil
+	return &fallbackLLM{providers: providers, modelIDs: modelIDs}, nil
 }

@@ -346,12 +346,20 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 	}
 
 	// Populate fallback state when the model reports an active provider.
+	// Provider is the dive provider name (openai/bedrock/...); Model is the
+	// configured model ID (e.g. gpt-5.5) so the dashboard shows what the
+	// user actually picked rather than the provider tag.
 	if reporter, ok := a.model.(ActiveReporter); ok {
 		idx, name := reporter.Active()
-		st.Model = name
 		st.Provider = name
+		st.Model = name
 		st.FallbackIndex = idx
 		st.OnFallback = idx > 0
+		if mr, ok := a.model.(interface{ ActiveModel() string }); ok {
+			if modelID := mr.ActiveModel(); modelID != "" {
+				st.Model = modelID
+			}
+		}
 	}
 
 	if skillRes != nil {
