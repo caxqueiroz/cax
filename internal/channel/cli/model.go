@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -51,7 +52,8 @@ type PluginListItem struct {
 	AgentCount int
 }
 
-// historyEntry is one rendered conversation line ("you:" / "bot:" / system).
+// historyEntry is one rendered conversation line (user prompt, assistant
+// reply, or system message — distinguished by who).
 type historyEntry struct {
 	who  string // "you" | "bot" | "sys"
 	text string
@@ -101,6 +103,7 @@ type model struct {
 
 	input    textinput.Model
 	viewport viewport.Model
+	spinner  spinner.Model
 
 	history   []historyEntry
 	stream    string // in-flight assistant text being streamed
@@ -125,7 +128,7 @@ type model struct {
 
 func newModel(width, height int) model {
 	ti := textinput.New()
-	ti.Prompt = "> "
+	ti.Prompt = "❯ "
 	ti.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks"
 	ti.CharLimit = 4000
 	// Focus before the textinput is copied into the model value. Calling
@@ -134,6 +137,10 @@ func newModel(width, height int) model {
 	// drop every character key.
 	_ = ti.Focus()
 
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = dimStyle
+
 	vp := viewport.New(width, max(1, height-6))
 
 	return model{
@@ -141,6 +148,7 @@ func newModel(width, height int) model {
 		height:   height,
 		input:    ti,
 		viewport: vp,
+		spinner:  sp,
 	}
 }
 
@@ -218,6 +226,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The program wrapper (cli.go) intercepts this to fetch status out of
 		// band; the pure model treats it as a no-op.
 		return m, nil
+
+	case spinner.TickMsg:
+		// Animate while waiting for the assistant's reply; stop once streaming ends.
+		if !m.streaming {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		m.refreshViewport()
+		return m, cmd
 	}
 
 	// Delegate remaining keys to the input; scroll keys to the viewport.
@@ -253,7 +271,7 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	m.stream = ""
 	m.lastErr = ""
 	m.refreshViewport()
-	return m, emitSubmit(line)
+	return m, tea.Batch(emitSubmit(line), m.spinner.Tick)
 }
 
 func emitSubmit(line string) tea.Cmd {

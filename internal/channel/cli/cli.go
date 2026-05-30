@@ -90,7 +90,11 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 		handle: handle,
 		status: status,
 	}
-	p := tea.NewProgram(pm, tea.WithAltScreen())
+	// Alt-screen isolates the TUI from the underlying shell; mouse-cell
+	// motion routes the scroll wheel to the in-app viewport instead of the
+	// terminal's scrollback (so scrolling shows past conversation, not the
+	// shell history that was behind us when czcli launched).
+	p := tea.NewProgram(pm, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	pm.send = p.Send
 
 	// Cancel the program when the context ends.

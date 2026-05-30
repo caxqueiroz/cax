@@ -82,7 +82,9 @@ func TestViewIncludesAllRegions(t *testing.T) {
 	m.history = []historyEntry{{who: "you", text: "hey"}, {who: "bot", text: "hi!"}}
 	m.refreshViewport()
 	out := m.View()
-	for _, want := range []string{"claude-opus", "you:", "hey", "bot:", "hi!", "1d", "mem", "> "} {
+	// "❯" is the user prompt prefix; assistant replies have no prefix so we
+	// just assert the message text is present.
+	for _, want := range []string{"claude-opus", "❯", "hey", "hi!", "1d", "mem"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q", want)
 		}

@@ -20,7 +20,6 @@ var (
 	redStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
 	dimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 	youStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	botStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
 	sysStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true)
 	sepStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
@@ -123,7 +122,9 @@ func (m model) renderBottomBar() string {
 
 // renderConversation builds the body string fed to the viewport. All entries
 // are wrapped to the viewport width so long lines (esp. error messages) can't
-// blow past the bottom bar and shred the layout.
+// blow past the bottom bar and shred the layout. Style: user lines carry a
+// "❯" prefix in accent; assistant replies have no prefix (so the text reads
+// like prose) and are followed by a blank line for breathing room.
 func (m model) renderConversation() string {
 	w := m.viewport.Width
 	if w <= 0 {
@@ -135,13 +136,21 @@ func (m model) renderConversation() string {
 	for _, h := range m.history {
 		b.WriteString(wrap.Render(renderEntry(h)))
 		b.WriteByte('\n')
+		if h.who == "bot" {
+			b.WriteByte('\n')
+		}
 	}
 	if m.streaming {
-		b.WriteString(wrap.Render(botStyle.Render("bot: ") + m.stream))
+		if m.stream == "" {
+			// No deltas yet — show the spinner so the user knows we're working.
+			b.WriteString(dimStyle.Render(m.spinner.View() + " working…"))
+		} else {
+			b.WriteString(wrap.Render(m.stream))
+		}
 		b.WriteByte('\n')
 	}
 	if m.lastErr != "" {
-		b.WriteString(wrapErr.Render("err: " + m.lastErr))
+		b.WriteString(wrapErr.Render("✗ " + m.lastErr))
 		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -150,9 +159,10 @@ func (m model) renderConversation() string {
 func renderEntry(h historyEntry) string {
 	switch h.who {
 	case "you":
-		return youStyle.Render("you: ") + h.text
+		return youStyle.Render("❯ ") + h.text
 	case "bot":
-		return botStyle.Render("bot: ") + h.text
+		// No prefix: assistant replies read as plain prose blocks.
+		return h.text
 	default:
 		return sysStyle.Render(h.text)
 	}
