@@ -10,6 +10,7 @@ import (
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/lsp"
 	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
 	"github.com/caxqueiroz/czcli/internal/skills"
@@ -97,6 +98,50 @@ func TestBuildAcceptsSkillsAndMCPTools(t *testing.T) {
 	}
 }
 
+func TestBuildIncludesLSPToolsAndStatus(t *testing.T) {
+	store := newTestStore(t)
+	model := newScriptLLM("dummy")
+	cfg := &config.Config{
+		Persona: "czcli",
+		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
+		Tools:   config.ToolsConfig{FilesEnabled: true},
+	}
+	lspTools := []dive.Tool{&fakeMCPTool{name: "lsp_definition"}}
+	lspInfos := []lsp.ServerInfo{
+		{Name: "gopls", Languages: []string{"go"}, Running: true},
+		{Name: "pyright", Languages: []string{"python"}, Running: false, LastError: "not found"},
+	}
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, nil, lspTools, lspInfos)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	st, err := a.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	gotLSPTool := false
+	for _, n := range st.ToolNames {
+		if n == "lsp_definition" {
+			gotLSPTool = true
+		}
+	}
+	if !gotLSPTool {
+		t.Errorf("ToolNames missing lsp_definition: %v", st.ToolNames)
+	}
+	if st.LSPServerCount != 2 {
+		t.Errorf("LSPServerCount = %d, want 2", st.LSPServerCount)
+	}
+	if len(st.LSPLanguages) != 1 || st.LSPLanguages[0] != "go" {
+		t.Errorf("LSPLanguages = %v, want [go] (running-only)", st.LSPLanguages)
+	}
+	if len(st.LSPServers) != 2 {
+		t.Errorf("LSPServers len = %d, want 2", len(st.LSPServers))
+	}
+	if st.LSPServers[1].LastError != "not found" {
+		t.Errorf("LSPServers[1].LastError = %q, want 'not found'", st.LSPServers[1].LastError)
+	}
+}
+
 func TestStatusReportsMCPServerNames(t *testing.T) {
 	store := newTestStore(t)
 	model := newScriptLLM("dummy")
@@ -109,7 +154,7 @@ func TestStatusReportsMCPServerNames(t *testing.T) {
 		{Name: "git", Transport: "stdio", Connected: true, ToolCount: 3},
 		{Name: "github", Transport: "http", Connected: false, LastError: "auth"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos)
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos, nil, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -151,7 +196,7 @@ func TestRebuildSwapsTools(t *testing.T) {
 	if !hasOld {
 		t.Fatalf("expected old_tool in initial status: %v", st1.ToolNames)
 	}
-	if err := a.Rebuild(context.Background(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil); err != nil {
+	if err := a.Rebuild(context.Background(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil, nil, nil); err != nil {
 		t.Fatalf("Rebuild: %v", err)
 	}
 	st2, _ := a.Status(context.Background())

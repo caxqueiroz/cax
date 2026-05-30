@@ -14,6 +14,7 @@ import (
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/lsp"
 	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
 	"github.com/caxqueiroz/czcli/internal/skills"
@@ -41,6 +42,7 @@ type Assistant struct {
 	skillRes       *skills.LoadResult
 	subagentNames  []string
 	mcpServerNames []string
+	lspInfos       []lsp.ServerInfo
 
 	mu      sync.Mutex
 	running map[string]int // running sub-agent task descriptions -> ref count
@@ -48,11 +50,11 @@ type Assistant struct {
 
 // Build assembles the dive.Agent with skills registered as a dive.Extension
 // (v1.7 wires skill.Loader through AgentOptions.Extensions), MCP tools, and
-// the existing memory hooks. Plan 6 introduces the skills + mcpTools params;
-// Plans 7–9 extend this further with plugin contributions, LSP tools, and
-// the hook dispatcher.
+// the existing memory hooks. Plan 6 introduced the skills + mcpTools params;
+// Plan 8 adds lspTools (already-realized dive tools from lsp.Manager.Tools()).
 //
-// Callers that already have MCP ServerInfos should prefer BuildWithMCPInfos.
+// Callers that already have MCP ServerInfos or LSP ServerInfos should prefer
+// BuildWithMCPInfos.
 func Build(
 	ctx context.Context,
 	cfg *config.Config,
@@ -61,12 +63,13 @@ func Build(
 	skillRes *skills.LoadResult,
 	mcpTools []dive.Tool,
 ) (*Assistant, error) {
-	return BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, nil)
+	return BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, nil, nil, nil)
 }
 
-// BuildWithMCPInfos is Build plus the MCP ServerInfos so Status can render
-// server names without re-querying the manager. cmd/czcli/main.go uses this
-// from Task 9; Plans 7+ also use it for plugin-contributed MCP servers.
+// BuildWithMCPInfos is Build plus the MCP ServerInfos and LSP ServerInfos so
+// Status can render server names without re-querying their managers.
+// cmd/czcli/main.go uses this; Plans 7+ also use it for plugin-contributed
+// MCP + LSP servers. Plan 8 added lspTools/lspInfos additively.
 func BuildWithMCPInfos(
 	ctx context.Context,
 	cfg *config.Config,
@@ -75,6 +78,8 @@ func BuildWithMCPInfos(
 	skillRes *skills.LoadResult,
 	mcpTools []dive.Tool,
 	mcpInfos []mcp.ServerInfo,
+	lspTools []dive.Tool,
+	lspInfos []lsp.ServerInfo,
 ) (*Assistant, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("agent: nil config")
@@ -100,6 +105,8 @@ func BuildWithMCPInfos(
 	// MCP tools come from cmd/czcli/main.go via mcp.Connect; mcp.Connect is
 	// no longer called inside augmentTools.
 	a.tools = append(a.tools, mcpTools...)
+	// LSP tools come from cmd/czcli/main.go via lsp.New + Manager.Tools().
+	a.tools = append(a.tools, lspTools...)
 
 	// Sub-agents stay inside augmentTools but no longer reach into mcp.
 	if err := a.augmentTools(ctx, model); err != nil {
@@ -140,20 +147,25 @@ func BuildWithMCPInfos(
 		names = append(names, info.Name)
 	}
 	a.mcpServerNames = names
+	a.lspInfos = append([]lsp.ServerInfo(nil), lspInfos...)
 	return a, nil
 }
 
 // Rebuild swaps the inner *dive.Agent atomically. In-flight turns finish
 // under the existing agent; the next turn picks up the new one. Plans 7–9
-// call this after /plugin install|enable|disable mutations.
+// call this after /plugin install|enable|disable mutations. Plan 8 extended
+// the signature with lspTools+lspInfos so plugin-contributed LSP servers are
+// picked up on hot-reload.
 func (a *Assistant) Rebuild(
 	ctx context.Context,
 	cfg *config.Config,
 	skillRes *skills.LoadResult,
 	mcpTools []dive.Tool,
 	mcpInfos []mcp.ServerInfo,
+	lspTools []dive.Tool,
+	lspInfos []lsp.ServerInfo,
 ) error {
-	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos)
+	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos)
 	if err != nil {
 		return fmt.Errorf("agent: rebuild: %w", err)
 	}
@@ -163,6 +175,7 @@ func (a *Assistant) Rebuild(
 	a.skillRes = next.skillRes
 	a.subagentNames = next.subagentNames
 	a.mcpServerNames = next.mcpServerNames
+	a.lspInfos = next.lspInfos
 	a.cfg = cfg
 	a.buildMu.Unlock()
 	return nil
@@ -269,6 +282,7 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 	skillRes := a.skillRes
 	subagentNames := a.subagentNames
 	mcpServerNames := a.mcpServerNames
+	lspInfos := a.lspInfos
 	a.buildMu.RUnlock()
 
 	st := channel.Status{
@@ -300,6 +314,11 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 		st.MCPServerCount = len(mcpServerNames)
 		st.MCPServerNames = append([]string(nil), mcpServerNames...)
 	}
+	if len(lspInfos) > 0 {
+		st.LSPServerCount = len(lspInfos)
+		st.LSPLanguages = lspLanguageSet(lspInfos)
+		st.LSPServers = lspServerSummaries(lspInfos)
+	}
 
 	if stats, err := a.store.Stats(ctx); err == nil {
 		st.MemSizeBytes = stats.DBSizeBytes
@@ -314,6 +333,42 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 		}
 	}
 	return st, nil
+}
+
+// lspLanguageSet returns the de-duplicated, sorted union of language IDs
+// across all RUNNING LSP servers. Stopped servers don't claim a language for
+// dashboard purposes.
+func lspLanguageSet(infos []lsp.ServerInfo) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, i := range infos {
+		if !i.Running {
+			continue
+		}
+		for _, lang := range i.Languages {
+			if !seen[lang] {
+				seen[lang] = true
+				out = append(out, lang)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// lspServerSummaries projects lsp.ServerInfo into channel.LSPServerSummary so
+// the channel package never needs to import internal/lsp.
+func lspServerSummaries(infos []lsp.ServerInfo) []channel.LSPServerSummary {
+	out := make([]channel.LSPServerSummary, 0, len(infos))
+	for _, i := range infos {
+		out = append(out, channel.LSPServerSummary{
+			Name:      i.Name,
+			Languages: append([]string(nil), i.Languages...),
+			Running:   i.Running,
+			LastError: i.LastError,
+		})
+	}
+	return out
 }
 
 // toolNamesOf returns the names of the given tools in registry order.

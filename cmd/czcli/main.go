@@ -90,7 +90,7 @@ func run() error {
 		slog.Warn("mcp: connect failed; continuing without MCP tools", "err", err)
 	}
 
-	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos)
+	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, nil, nil)
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
 	}
@@ -298,7 +298,7 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 	if err != nil {
 		slog.Warn("plugins: rebuild: mcp.Connect failed; continuing without MCP tools", "err", err)
 	}
-	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos); err != nil {
+	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, nil, nil); err != nil {
 		return fmt.Errorf("plugins: agent rebuild: %w", err)
 	}
 	slog.Info("plugins: hot-reload complete",
