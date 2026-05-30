@@ -160,6 +160,39 @@ func TestLSPDocumentSymbols(t *testing.T) {
 	}
 }
 
+func TestLSPWorkspaceSymbols(t *testing.T) {
+	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+		switch req.Method() {
+		case protocol.MethodInitialize:
+			return reply(ctx, &protocol.InitializeResult{}, nil)
+		case protocol.MethodInitialized:
+			return reply(ctx, nil, nil)
+		case protocol.MethodWorkspaceSymbol:
+			var p protocol.WorkspaceSymbolParams
+			_ = json.Unmarshal(req.Params(), &p)
+			if p.Query != "Foo" {
+				t.Errorf("query = %q want Foo", p.Query)
+			}
+			syms := []protocol.SymbolInformation{{
+				Name: "FooBar",
+				Kind: protocol.SymbolKindFunction,
+				Location: protocol.Location{
+					URI: uri.File("/tmp/foo.go"),
+				},
+			}}
+			return reply(ctx, syms, nil)
+		}
+		return reply(ctx, nil, nil)
+	}
+	m, _ := setupManagerWithFake(t, handler)
+	tool := toolByName(m.Tools(), "lsp_workspace_symbols")
+	res := callTool(t, tool, map[string]any{"query": "Foo"})
+	text := resultText(res)
+	if !strings.Contains(text, "FooBar") || !strings.Contains(text, "/tmp/foo.go") {
+		t.Fatalf("workspace_symbols missing fields: %q", text)
+	}
+}
+
 func TestLSPDefinition(t *testing.T) {
 	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		switch req.Method() {

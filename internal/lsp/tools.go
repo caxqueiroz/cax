@@ -279,7 +279,50 @@ func symbolKindString(k protocol.SymbolKind) string {
 	return fmt.Sprintf("kind(%d)", int(k))
 }
 func (m *Manager) workspaceSymbolsTool() dive.Tool {
-	return placeholderTool("lsp_workspace_symbols")
+	return dive.FuncTool("lsp_workspace_symbols",
+		"Search the workspace for symbols matching a query string across all running language servers.",
+		func(ctx context.Context, args *queryArgs) (*dive.ToolResult, error) {
+			rctx, cancel := context.WithTimeout(ctx, requestTimeout)
+			defer cancel()
+
+			// De-duplicate servers (a server can be registered under multiple
+			// languages); query each exactly once.
+			m.mu.Lock()
+			servers := make([]*server, 0, len(m.all))
+			servers = append(servers, m.all...)
+			m.mu.Unlock()
+
+			if len(servers) == 0 {
+				return dive.NewToolResultText("workspace_symbols: no LSP servers running"), nil
+			}
+			var combined []protocol.SymbolInformation
+			for _, s := range servers {
+				var syms []protocol.SymbolInformation
+				if _, err := s.conn.Call(rctx, protocol.MethodWorkspaceSymbol, &protocol.WorkspaceSymbolParams{
+					Query: args.Query,
+				}, &syms); err != nil {
+					// Skip a single server's failure; others may answer.
+					continue
+				}
+				combined = append(combined, syms...)
+			}
+			return dive.NewToolResultText(formatSymbolInformation(combined)), nil
+		},
+	)
+}
+
+func formatSymbolInformation(syms []protocol.SymbolInformation) string {
+	if len(syms) == 0 {
+		return "workspace_symbols: no results"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "workspace_symbols (%d):\n", len(syms))
+	for _, s := range syms {
+		fmt.Fprintf(&b, "  %s (%s) %s %d:%d\n",
+			s.Name, symbolKindString(s.Kind), string(s.Location.URI),
+			s.Location.Range.Start.Line, s.Location.Range.Start.Character)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 func (m *Manager) diagnosticsTool() dive.Tool { return placeholderTool("lsp_diagnostics") }
 
