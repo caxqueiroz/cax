@@ -189,7 +189,13 @@ func newModel(width, height int) model {
 	// approximation rather than the active theme's Dim.
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 
-	vp := viewport.New(width, max(1, height-7))
+	// Initial viewport sizing matches the v2 layout (see resizeInput for the
+	// authoritative math). On the first WindowSizeMsg these get rewritten
+	// against the real terminal size; the values here only have to be sane
+	// before the first message arrives so refreshViewport doesn't panic.
+	vpW := max(1, width-2*len(leftIndent)-2-4) // -border -2*padX
+	vpH := max(1, height-9-1)                  // -fixed chrome -input(1)
+	vp := viewport.New(vpW, vpH)
 
 	return model{
 		width:    width,
@@ -212,8 +218,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.viewport.Width = msg.Width
-		m.input.SetWidth(max(1, msg.Width-2))
+		// Conversation viewport inner width = boxOuter − 2 (border) − 4 (padX*2).
+		// Message textarea inner width = boxOuter − 2 (border) − 2 (padX*2).
+		boxOuter := msg.Width - 2*len(leftIndent)
+		if boxOuter < 16 {
+			boxOuter = 16
+		}
+		m.viewport.Width = max(1, boxOuter-2-4)
+		m.input.SetWidth(max(1, boxOuter-2-2))
 		m.resizeInput()
 		m.ready = true
 		m.refreshViewport()
@@ -417,7 +429,24 @@ func (m model) advanceWizard(line string) (tea.Model, tea.Cmd) {
 }
 
 // resizeInput resizes the textarea to fit its current content (clamped to
-// [1,6]) and recomputes viewport height around it.
+// [1,6]) and recomputes the conversation viewport height around it.
+//
+// v2 layout chrome (per WindowSizeMsg):
+//
+//	header box       3 (top+content+bottom)
+//	blank            1
+//	conversation box N (this is what we size; min 4)
+//	blank            1
+//	status row       1
+//	blank            1
+//	message box      input.Height()+2 (top+bottom border)
+//	hint line        1 (skipped when m.height < minHintHeight)
+//	─────────────
+//	total            = msg.Height
+//
+// Conversation box outer height = m.height - 9 - input.Height() (or 8 when
+// the hint line is dropped). The viewport sits INSIDE the box, so its
+// height is boxOuterHeight - 2 (border) - 2 (Padding(1,2) rows).
 func (m *model) resizeInput() {
 	h := m.input.LineCount()
 	if h < 1 {
@@ -429,9 +458,16 @@ func (m *model) resizeInput() {
 	if m.input.Height() != h {
 		m.input.SetHeight(h)
 	}
-	// Layout: top(1)+sep(1)+viewport+sep(1)+bottom(1)+sep(1)+pad(1)+input(h)
-	// total fixed chrome = 6, plus input.
-	vpH := m.height - 6 - h
+	fixed := 9 // header(3)+blank(1)+blank(1)+status(1)+blank(1)+border*2(2)
+	if m.height >= minHintHeight {
+		fixed++ // hint line
+	}
+	boxOuter := m.height - fixed - h
+	if boxOuter < 4 {
+		boxOuter = 4
+	}
+	// Viewport inside the box: subtract 2 border (top+bottom) + 2 padY (top+bottom).
+	vpH := boxOuter - 2 - 2
 	if vpH < 1 {
 		vpH = 1
 	}

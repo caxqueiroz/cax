@@ -51,8 +51,11 @@ func TestWindowResizeSizesViewport(t *testing.T) {
 	if m.width != 100 || m.height != 40 {
 		t.Fatalf("size = %dx%d, want 100x40", m.width, m.height)
 	}
-	if m.viewport.Width != 100 {
-		t.Errorf("viewport width = %d, want 100", m.viewport.Width)
+	// v2 layout: viewport sits INSIDE the conversation box, so its width is
+	// the inner area, not the terminal width. boxOuter = 100 − 2*2 (global
+	// indent) = 96; viewport inner = 96 − 2 (border) − 4 (padX*2) = 90.
+	if m.viewport.Width != 90 {
+		t.Errorf("viewport width = %d, want 90 (inner area of conversation box)", m.viewport.Width)
 	}
 }
 
