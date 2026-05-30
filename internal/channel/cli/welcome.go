@@ -8,12 +8,13 @@ import (
 )
 
 // welcomeArt is the brand mark printed in the welcome card and by /about.
-// Five rows of figlet "graffiti"-style block letters spelling "cax".
-const welcomeArt = ` ____  ____ ___  _
-/   _\/  _ \\  \//
-|  /  | / \| \  /
-|  \__| |-|| /  \
-\____/\_/ \|/__/\\`
+// Five rows of solid block letters spelling "cax" — drawn with U+2588 FULL
+// BLOCK so the letters read as filled glyphs rather than outlines.
+const welcomeArt = `█████   ███   █   █
+█      █   █   █ █
+█      █████    █
+█      █   █   █ █
+█████  █   █  █   █`
 
 // Version is the binary's release tag. Override via
 // `go build -ldflags "-X github.com/caxqueiroz/cax/internal/channel/cli.Version=1.2.3"`.
@@ -24,9 +25,8 @@ var Version = "dev"
 // vertically alongside the art.
 func (m model) renderWelcomeBlock(width int) string {
 	s := styles()
-	// Art rendered in bright white regardless of theme accent — matches the
-	// "fill it up" look of figlet output on a bare terminal.
-	artStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Bold(true).Render(welcomeArt)
+	// Art rendered in true white (#ffffff) regardless of the active theme.
+	artStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Bold(true).Render(welcomeArt)
 
 	uname := "you"
 	if u, err := user.Current(); err == nil && u.Username != "" {
