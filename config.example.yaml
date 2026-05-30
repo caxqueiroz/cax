@@ -76,4 +76,20 @@ plugins:
     - ~/.czcli/plugins
     - .czcli/plugins
 
+# Language Server Protocol servers (Plan 8). czcli spawns one stdio child per
+# entry, performs the LSP initialize/initialized handshake, and exposes six
+# generic tools the agent can route by file extension: lsp_definition,
+# lsp_references, lsp_hover, lsp_document_symbols, lsp_workspace_symbols,
+# lsp_diagnostics. Plugins may contribute additional servers via
+# .claude-plugin/lsp.json; user entries win on name collisions.
+lsp:
+  enabled: true
+  servers: []
+  # Example — uncomment and adjust to enable Go support via gopls:
+  # - name: gopls
+  #   command: gopls
+  #   args: []
+  #   languages: [go]
+  #   root_patterns: [go.mod]
+
 schedules: []

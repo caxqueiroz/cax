@@ -17,11 +17,13 @@ import (
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/channel/cli"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/lsp"
 	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
 	"github.com/caxqueiroz/czcli/internal/plugins"
 	"github.com/caxqueiroz/czcli/internal/scheduler"
 	"github.com/caxqueiroz/czcli/internal/skills"
+	"github.com/deepnoodle-ai/dive"
 )
 
 func main() {
@@ -90,7 +92,17 @@ func run() error {
 		slog.Warn("mcp: connect failed; continuing without MCP tools", "err", err)
 	}
 
-	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, nil, nil)
+	// LSP: spawn user-configured servers (plus plugin-contributed ones merged
+	// in by mergeLSPServers). Per-server errors are recorded in ServerInfo;
+	// initialization never aborts startup. Hot-reload (pluginAdapter.Rebuild)
+	// rotates the manager via lspHolder so child processes from prior
+	// generations are reaped.
+	holder := &lspHolder{}
+	holder.swap(buildLSP(ctx, cfg, contrib))
+	defer holder.closeCurrent()
+	lspTools, lspInfos := holder.current()
+
+	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos)
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
 	}
@@ -113,7 +125,7 @@ func run() error {
 	}
 	defer sched.Stop()
 
-	pluginsAdp := pluginAdapter{mgr: pluginsMgr, cfg: cfg, assistant: assistant}
+	pluginsAdp := pluginAdapter{mgr: pluginsMgr, cfg: cfg, assistant: assistant, lspHolder: holder}
 	ch := cli.New(
 		cli.WithSessionID("cli"),
 		cli.WithScheduler(scheduleAdapter{store: store, sched: sched}),
@@ -209,6 +221,90 @@ func gitClone(ctx context.Context, gitURL, dest string) error {
 	return nil
 }
 
+// buildLSP merges user-config and plugin-contributed LSP servers, then
+// instantiates the manager + tools when LSP is enabled and at least one
+// server is configured. Returns (nil, nil, nil) when LSP is disabled or no
+// servers were configured. Errors are logged + swallowed; per-server failures
+// already surface via ServerInfo.LastError.
+func buildLSP(ctx context.Context, cfg *config.Config, contrib plugins.Contributions) (*lsp.Manager, []dive.Tool, []lsp.ServerInfo) {
+	if !cfg.LSP.Enabled {
+		return nil, nil, nil
+	}
+	servers := mergeLSPServers(cfg.LSP.Servers, contrib.LSPServers)
+	if len(servers) == 0 {
+		return nil, nil, nil
+	}
+	rootDir, err := os.Getwd()
+	if err != nil {
+		slog.Warn("lsp: resolve workdir", "err", err)
+		rootDir = "."
+	}
+	mgr, infos, err := lsp.New(ctx, servers, rootDir)
+	if err != nil {
+		slog.Warn("lsp: manager init failed; continuing without LSP", "err", err)
+		return nil, nil, nil
+	}
+	return mgr, mgr.Tools(), infos
+}
+
+// mergeLSPServers concatenates user-config and plugin-contributed LSP servers,
+// dropping duplicates by Name (user config wins). Mirrors mergeMCPServers.
+func mergeLSPServers(user, fromPlugins []config.LSPServerConfig) []config.LSPServerConfig {
+	if len(fromPlugins) == 0 {
+		return user
+	}
+	seen := make(map[string]bool, len(user)+len(fromPlugins))
+	out := make([]config.LSPServerConfig, 0, len(user)+len(fromPlugins))
+	for _, s := range user {
+		if seen[s.Name] {
+			continue
+		}
+		seen[s.Name] = true
+		out = append(out, s)
+	}
+	for _, s := range fromPlugins {
+		if seen[s.Name] {
+			slog.Warn("plugins: lsp server name collides with user config; keeping user", "name", s.Name)
+			continue
+		}
+		seen[s.Name] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+// lspHolder owns the current generation of the LSP manager + its tools/infos
+// so plugin hot-reload can rotate the manager without leaking child
+// processes. swap closes the previous generation; closeCurrent runs on
+// process shutdown.
+type lspHolder struct {
+	mgr   *lsp.Manager
+	tools []dive.Tool
+	infos []lsp.ServerInfo
+}
+
+func (h *lspHolder) swap(mgr *lsp.Manager, tools []dive.Tool, infos []lsp.ServerInfo) {
+	if h.mgr != nil {
+		if err := h.mgr.Close(); err != nil {
+			slog.Warn("lsp: close previous manager", "error", err)
+		}
+	}
+	h.mgr, h.tools, h.infos = mgr, tools, infos
+}
+
+func (h *lspHolder) current() ([]dive.Tool, []lsp.ServerInfo) {
+	return h.tools, h.infos
+}
+
+func (h *lspHolder) closeCurrent() {
+	if h.mgr != nil {
+		if err := h.mgr.Close(); err != nil {
+			slog.Warn("lsp: close manager", "error", err)
+		}
+		h.mgr = nil
+	}
+}
+
 // mergeMCPServers concatenates user-config and plugin-contributed MCP servers,
 // dropping duplicates by Name (user config wins). Deterministic order: user
 // entries first, then plugin entries in the order Manager.Load returned them.
@@ -245,6 +341,7 @@ type pluginAdapter struct {
 	mgr       *plugins.Manager
 	cfg       *config.Config
 	assistant *agent.Assistant
+	lspHolder *lspHolder
 }
 
 func (a pluginAdapter) List(ctx context.Context) ([]cli.PluginListItem, error) {
@@ -298,7 +395,17 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 	if err != nil {
 		slog.Warn("plugins: rebuild: mcp.Connect failed; continuing without MCP tools", "err", err)
 	}
-	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, nil, nil); err != nil {
+	// Re-spawn LSP servers off the merged config + plugin contributions;
+	// holder.swap closes the previous generation's children.
+	if a.lspHolder != nil {
+		a.lspHolder.swap(buildLSP(ctx, a.cfg, contrib))
+	}
+	var lspTools []dive.Tool
+	var lspInfos []lsp.ServerInfo
+	if a.lspHolder != nil {
+		lspTools, lspInfos = a.lspHolder.current()
+	}
+	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos); err != nil {
 		return fmt.Errorf("plugins: agent rebuild: %w", err)
 	}
 	slog.Info("plugins: hot-reload complete",
