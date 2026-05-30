@@ -65,16 +65,20 @@ func Build(
 	model llm.StreamingLLM,
 	skillRes *skills.LoadResult,
 	mcpTools []dive.Tool,
+	creatorTools []dive.Tool,
 ) (*Assistant, error) {
-	return BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, nil, nil, nil, nil)
+	return BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, nil, nil, nil, nil, creatorTools)
 }
 
 // BuildWithMCPInfos is Build plus the MCP ServerInfos and LSP ServerInfos so
 // Status can render server names without re-querying their managers, plus the
 // Plan 9 *hooks.Dispatcher that wires plugin-declared lifecycle hooks into the
 // dive agent. cmd/czcli/main.go uses this; Plans 7-9 also use it for
-// plugin-contributed contributions. Plan 8 added lspTools/lspInfos additively
-// and Plan 9 appends hooksDisp.
+// plugin-contributed contributions. Plan 8 added lspTools/lspInfos additively,
+// Plan 9 appends hooksDisp, and Plan 12 appends creatorTools — the three
+// create_skill/create_agent/create_command FuncTools wired over the shared
+// Writer + Reloader pair so natural-language and /new requests produce
+// identical files.
 func BuildWithMCPInfos(
 	ctx context.Context,
 	cfg *config.Config,
@@ -86,6 +90,7 @@ func BuildWithMCPInfos(
 	lspTools []dive.Tool,
 	lspInfos []lsp.ServerInfo,
 	hooksDisp *hooks.Dispatcher,
+	creatorTools []dive.Tool,
 ) (*Assistant, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("agent: nil config")
@@ -114,6 +119,10 @@ func BuildWithMCPInfos(
 	a.tools = append(a.tools, mcpTools...)
 	// LSP tools come from cmd/czcli/main.go via lsp.New + Manager.Tools().
 	a.tools = append(a.tools, lspTools...)
+	// Creator tools (create_skill/create_agent/create_command) come from
+	// cmd/czcli/main.go via creator.Tools; they wrap the Writer + Reloader
+	// pair and trigger Rebuild on every successful write.
+	a.tools = append(a.tools, creatorTools...)
 
 	// Sub-agents stay inside augmentTools but no longer reach into mcp.
 	if err := a.augmentTools(ctx, model); err != nil {
@@ -165,7 +174,9 @@ func BuildWithMCPInfos(
 // call this after /plugin install|enable|disable mutations. Plan 8 extended
 // the signature with lspTools+lspInfos so plugin-contributed LSP servers are
 // picked up on hot-reload; Plan 9 appends hooksDisp so the new generation of
-// plugin-declared hooks replaces the old set atomically.
+// plugin-declared hooks replaces the old set atomically; Plan 12 appends
+// creatorTools so a creator-triggered Rebuild re-installs the three
+// create_* FuncTools alongside the rest.
 func (a *Assistant) Rebuild(
 	ctx context.Context,
 	cfg *config.Config,
@@ -175,8 +186,9 @@ func (a *Assistant) Rebuild(
 	lspTools []dive.Tool,
 	lspInfos []lsp.ServerInfo,
 	hooksDisp *hooks.Dispatcher,
+	creatorTools []dive.Tool,
 ) error {
-	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp)
+	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, creatorTools)
 	if err != nil {
 		return fmt.Errorf("agent: rebuild: %w", err)
 	}

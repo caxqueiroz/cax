@@ -26,7 +26,7 @@ func buildTestAssistant(t *testing.T, reply string) (*Assistant, *scriptLLM) {
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true, BashEnabled: true, RequireConfirm: false},
 	}
-	a, err := Build(context.Background(), cfg, store, model, nil, nil)
+	a, err := Build(context.Background(), cfg, store, model, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestBuildAcceptsSkillsAndMCPTools(t *testing.T) {
 
 	mcpTool := &fakeMCPTool{name: "mcp_echo"}
 
-	a, err := Build(context.Background(), cfg, store, model, skillRes, []dive.Tool{mcpTool})
+	a, err := Build(context.Background(), cfg, store, model, skillRes, []dive.Tool{mcpTool}, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestBuildIncludesLSPToolsAndStatus(t *testing.T) {
 		{Name: "gopls", Languages: []string{"go"}, Running: true},
 		{Name: "pyright", Languages: []string{"python"}, Running: false, LastError: "not found"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, nil, lspTools, lspInfos, nil)
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, nil, lspTools, lspInfos, nil, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestStatusReportsMCPServerNames(t *testing.T) {
 		{Name: "git", Transport: "stdio", Connected: true, ToolCount: 3},
 		{Name: "github", Transport: "http", Connected: false, LastError: "auth"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos, nil, nil, nil)
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestRebuildSwapsTools(t *testing.T) {
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
-	a, err := Build(context.Background(), cfg, store, model, nil, []dive.Tool{&fakeMCPTool{name: "old_tool"}})
+	a, err := Build(context.Background(), cfg, store, model, nil, []dive.Tool{&fakeMCPTool{name: "old_tool"}}, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRebuildSwapsTools(t *testing.T) {
 	if !hasOld {
 		t.Fatalf("expected old_tool in initial status: %v", st1.ToolNames)
 	}
-	if err := a.Rebuild(context.Background(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil, nil, nil, nil); err != nil {
+	if err := a.Rebuild(context.Background(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil, nil, nil, nil, nil); err != nil {
 		t.Fatalf("Rebuild: %v", err)
 	}
 	st2, _ := a.Status(context.Background())
@@ -214,6 +214,64 @@ func TestRebuildSwapsTools(t *testing.T) {
 	}
 	if hasOld2 {
 		t.Errorf("Rebuild did not drop old_tool: %v", st2.ToolNames)
+	}
+}
+
+func TestBuildWithMCPInfos_AppendsCreatorToolsToRegistry(t *testing.T) {
+	store := newTestStore(t)
+	model := newScriptLLM("dummy")
+	cfg := &config.Config{
+		Persona: "czcli",
+		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
+		Tools:   config.ToolsConfig{FilesEnabled: true},
+	}
+	creatorTool := &fakeMCPTool{name: "create_skill"}
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model,
+		nil, nil, nil, nil, nil, nil, []dive.Tool{creatorTool})
+	if err != nil {
+		t.Fatalf("BuildWithMCPInfos: %v", err)
+	}
+	st, err := a.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	var found bool
+	for _, n := range st.ToolNames {
+		if n == "create_skill" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("create_skill not in tool names: %v", st.ToolNames)
+	}
+}
+
+func TestRebuild_PicksUpNewCreatorTools(t *testing.T) {
+	store := newTestStore(t)
+	model := newScriptLLM("dummy")
+	cfg := &config.Config{
+		Persona: "czcli",
+		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
+		Tools:   config.ToolsConfig{FilesEnabled: true},
+	}
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model,
+		nil, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("BuildWithMCPInfos: %v", err)
+	}
+	creatorTool := &fakeMCPTool{name: "create_command"}
+	if err := a.Rebuild(context.Background(), cfg, nil, nil, nil, nil, nil, nil, []dive.Tool{creatorTool}); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	st, _ := a.Status(context.Background())
+	var found bool
+	for _, n := range st.ToolNames {
+		if n == "create_command" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("create_command not present after Rebuild: %v", st.ToolNames)
 	}
 }
 

@@ -133,7 +133,7 @@ func run() error {
 	hookEntries := contribsToHookEntries(contrib.Hooks, slog.Default())
 	hooksDisp := hooks.Load(hookEntries, slog.Default())
 
-	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp)
+	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, nil)
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
 	}
@@ -475,7 +475,7 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 	hookEntries := contribsToHookEntries(contrib.Hooks, slog.Default())
 	hooksDisp := hooks.Load(hookEntries, slog.Default())
 
-	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp); err != nil {
+	if err := a.assistant.Rebuild(ctx, a.cfg, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, nil); err != nil {
 		return fmt.Errorf("plugins: agent rebuild: %w", err)
 	}
 	slog.Info("plugins: hot-reload complete",
