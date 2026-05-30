@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-// stateFile is the on-disk shape of ~/.czcli/state.json. Only the theme name
+// stateFile is the on-disk shape of ~/.cax/state.json. Only the theme name
 // is persisted today; future fields can be added without migrating users.
 type stateFile struct {
 	Theme string `json:"theme,omitempty"`
@@ -67,13 +67,13 @@ func writeStateTheme(path, name string) error {
 }
 
 // StateFile is the public helper view.go / commands.go use to compute the
-// path. It joins ~/.czcli/state.json or "" if the home dir can't be found.
+// path. It joins ~/.cax/state.json or "" if the home dir can't be found.
 func StateFile() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".czcli", "state.json")
+	return filepath.Join(home, ".cax", "state.json")
 }
 
 // WriteActive persists the currently active theme to path. Convenience for

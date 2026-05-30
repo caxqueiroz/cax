@@ -115,13 +115,13 @@ func TestLoadExpandsHomeInDBPath(t *testing.T) {
 providers:
   - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
 embeddings: {provider: openai, dim: 1536}
-memory: {db_path: ~/.czcli/memory.db}
+memory: {db_path: ~/.cax/memory.db}
 `)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	want := filepath.Join(home, ".czcli", "memory.db")
+	want := filepath.Join(home, ".cax", "memory.db")
 	if cfg.Memory.DBPath != want {
 		t.Fatalf("DBPath = %q, want %q", cfg.Memory.DBPath, want)
 	}
@@ -131,10 +131,10 @@ memory: {db_path: ~/.czcli/memory.db}
 }
 
 func TestProviderEnvRefResolves(t *testing.T) {
-	t.Setenv("CZCLI_TEST_OPENAI_KEY", "sk-test-123")
+	t.Setenv("CAX_TEST_OPENAI_KEY", "sk-test-123")
 	path := writeYAML(t, `
 providers:
-  - {name: openai, model: gpt-5.4, api_key_env: CZCLI_TEST_OPENAI_KEY}
+  - {name: openai, model: gpt-5.4, api_key_env: CAX_TEST_OPENAI_KEY}
 embeddings: {provider: openai, dim: 1536}
 memory: {db_path: /tmp/czcli/memory.db}
 `)
@@ -166,7 +166,7 @@ memory: {db_path: /tmp/czcli/memory.db}
 	if err != nil {
 		t.Fatalf("UserHomeDir: %v", err)
 	}
-	want := []string{filepath.Join(home, ".czcli/skills"), ".czcli/skills"}
+	want := []string{filepath.Join(home, ".cax/skills"), ".cax/skills"}
 	if len(cfg.Skills.Dirs) != len(want) {
 		t.Fatalf("Skills.Dirs len = %d, want %d (%v)", len(cfg.Skills.Dirs), len(want), cfg.Skills.Dirs)
 	}
@@ -214,12 +214,12 @@ memory: {db_path: /tmp/x.db}
 		t.Fatalf("Plugins.Dirs len = %d, want 2 (%v)", len(cfg.Plugins.Dirs), cfg.Plugins.Dirs)
 	}
 	home, _ := os.UserHomeDir()
-	wantUser := filepath.Join(home, ".czcli", "plugins")
+	wantUser := filepath.Join(home, ".cax", "plugins")
 	if cfg.Plugins.Dirs[0] != wantUser {
 		t.Errorf("Plugins.Dirs[0] = %q, want %q", cfg.Plugins.Dirs[0], wantUser)
 	}
-	if !strings.HasSuffix(cfg.Plugins.Dirs[1], ".czcli/plugins") {
-		t.Errorf("Plugins.Dirs[1] = %q, want suffix .czcli/plugins", cfg.Plugins.Dirs[1])
+	if !strings.HasSuffix(cfg.Plugins.Dirs[1], ".cax/plugins") {
+		t.Errorf("Plugins.Dirs[1] = %q, want suffix .cax/plugins", cfg.Plugins.Dirs[1])
 	}
 }
 
@@ -325,7 +325,7 @@ memory: {db_path: /tmp/czcli/memory.db}
 	if err != nil {
 		t.Fatalf("UserHomeDir: %v", err)
 	}
-	wantSub := []string{filepath.Join(home, ".czcli/agents"), ".czcli/agents"}
+	wantSub := []string{filepath.Join(home, ".cax/agents"), ".cax/agents"}
 	if len(cfg.Subagents.Dirs) != len(wantSub) {
 		t.Fatalf("Subagents.Dirs = %v, want %v", cfg.Subagents.Dirs, wantSub)
 	}
@@ -334,7 +334,7 @@ memory: {db_path: /tmp/czcli/memory.db}
 			t.Errorf("Subagents.Dirs[%d] = %q, want %q", i, cfg.Subagents.Dirs[i], d)
 		}
 	}
-	wantCmd := []string{filepath.Join(home, ".czcli/commands"), ".czcli/commands"}
+	wantCmd := []string{filepath.Join(home, ".cax/commands"), ".cax/commands"}
 	if len(cfg.Commands.Dirs) != len(wantCmd) {
 		t.Fatalf("Commands.Dirs = %v, want %v", cfg.Commands.Dirs, wantCmd)
 	}

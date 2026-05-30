@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-// stateEntry is one record in ~/.czcli/plugins.json.
+// stateEntry is one record in ~/.cax/plugins.json.
 type stateEntry struct {
 	Enabled bool   `json:"enabled"`
 	Source  string `json:"source"`

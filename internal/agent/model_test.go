@@ -178,12 +178,12 @@ var _ net.Error = timeoutErr{}
 var _ = time.Second // keep time import used if trimmed later
 
 func TestBuildModelOrdersProviders(t *testing.T) {
-	t.Setenv("CZCLI_TEST_BEDROCK_KEY", "bk")
-	t.Setenv("CZCLI_TEST_OPENAI_KEY", "ok")
+	t.Setenv("CAX_TEST_BEDROCK_KEY", "bk")
+	t.Setenv("CAX_TEST_OPENAI_KEY", "ok")
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{
-			{Name: "bedrock", Model: "us.anthropic.claude-x", BaseURL: "https://k/bedrock", TokenEnv: "CZCLI_TEST_BEDROCK_KEY", MaxTokens: 4096},
-			{Name: "openai", Model: "gpt-5.4", APIKeyEnv: "CZCLI_TEST_OPENAI_KEY", MaxTokens: 4096},
+			{Name: "bedrock", Model: "us.anthropic.claude-x", BaseURL: "https://k/bedrock", TokenEnv: "CAX_TEST_BEDROCK_KEY", MaxTokens: 4096},
+			{Name: "openai", Model: "gpt-5.4", APIKeyEnv: "CAX_TEST_OPENAI_KEY", MaxTokens: 4096},
 		},
 	}
 	model, err := BuildModel(cfg)

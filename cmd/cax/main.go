@@ -56,10 +56,10 @@ func run() error {
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
-		return fmt.Errorf("load config from %q (override with $CZCLI_CONFIG or place one at ./.czcli/config.yaml): %w", path, err)
+		return fmt.Errorf("load config from %q (override with $CAX_CONFIG or place one at ./.cax/config.yaml): %w", path, err)
 	}
 
-	// Themes: load embedded built-ins, then user themes from ~/.czcli/themes,
+	// Themes: load embedded built-ins, then user themes from ~/.cax/themes,
 	// then resolve the active one. Order: state.json > config.cli.theme >
 	// terminal-adapted default-{dark,light}.
 	theme.LoadBuiltins()
@@ -91,8 +91,8 @@ func run() error {
 	}
 
 	// Plugins: discover Claude Code-compatible plugin bundles. Drop-folder
-	// roots come from cfg.Plugins.Dirs (defaults: ~/.czcli/plugins,
-	// .czcli/plugins). State file lives at ~/.czcli/plugins.json. Per-plugin
+	// roots come from cfg.Plugins.Dirs (defaults: ~/.cax/plugins,
+	// .cax/plugins). State file lives at ~/.cax/plugins.json. Per-plugin
 	// parse errors are logged + skipped; a broken plugin never blocks startup.
 	pluginsMgr := plugins.New(cfg.Plugins, pluginsStatePath(), gitClone)
 	contrib, _, err := pluginsMgr.Load(ctx)
@@ -136,7 +136,7 @@ func run() error {
 	hooksDisp := hooks.Load(hookEntries, slog.Default())
 
 	// Creator: writer materializes new skills/agents/commands under
-	// ~/.czcli/{skills,agents,commands}; the reloader shim captures every
+	// ~/.cax/{skills,agents,commands}; the reloader shim captures every
 	// Assistant.Rebuild dependency so the create_* FuncTools can hot-reload
 	// the live agent via the single-method creator.Reloader contract without
 	// the creator package importing internal/agent.
@@ -265,10 +265,10 @@ func mcpTokenPath() string {
 	if err != nil {
 		return filepath.Join(os.TempDir(), "czcli-mcp-tokens.json")
 	}
-	return filepath.Join(home, ".czcli", "mcp-tokens.json")
+	return filepath.Join(home, ".cax", "mcp-tokens.json")
 }
 
-// userThemesDir returns ~/.czcli/themes or "" if home cannot be resolved.
+// userThemesDir returns ~/.cax/themes or "" if home cannot be resolved.
 // The directory does not need to exist; LoadUserDir silently no-ops on
 // missing dirs.
 func userThemesDir() string {
@@ -276,7 +276,7 @@ func userThemesDir() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".czcli", "themes")
+	return filepath.Join(home, ".cax", "themes")
 }
 
 // themeStatePath returns the path Ctrl+T persists the active theme to.
@@ -297,7 +297,7 @@ func pluginsStatePath() string {
 	if err != nil {
 		return filepath.Join(os.TempDir(), "czcli-plugins.json")
 	}
-	return filepath.Join(home, ".czcli", "plugins.json")
+	return filepath.Join(home, ".cax", "plugins.json")
 }
 
 // gitClone is the production CloneFunc: shallow git clone of gitURL into dest.
@@ -484,9 +484,9 @@ func (a pluginAdapter) Rebuild(ctx context.Context) error {
 		return fmt.Errorf("plugins: reload: %w", err)
 	}
 	// Merge user-level slash commands so /reload + /plugin mutations hot-pick
-	// changes to ~/.czcli/commands/*.md alongside plugin contributions.
+	// changes to ~/.cax/commands/*.md alongside plugin contributions.
 	contrib.Commands = append(contrib.Commands, usercmds.Load(a.cfg.Commands.Dirs)...)
-	// Re-load any user themes so a fresh ~/.czcli/themes/*.yaml is registered
+	// Re-load any user themes so a fresh ~/.cax/themes/*.yaml is registered
 	// before the next render. Built-ins were already embedded at startup; new
 	// user themes will become Cycle-able after this call.
 	if themesDir := userThemesDir(); themesDir != "" {
@@ -581,17 +581,17 @@ func (a pluginAdapter) Snapshot(ctx context.Context) (int, []string) {
 }
 
 // resolveConfigPath determines which config file to load. Order:
-//  1. $CZCLI_CONFIG (literal path)
-//  2. ./.czcli/config.yaml (project-local)
-//  3. ~/.czcli/config.yaml (user default)
+//  1. $CAX_CONFIG (literal path)
+//  2. ./.cax/config.yaml (project-local)
+//  3. ~/.cax/config.yaml (user default)
 //
 // The second return is true when the chosen path is the user default, which is
 // the only path eligible for first-run auto-create by ensureDefaultConfig.
 func resolveConfigPath() (path string, isDefault bool) {
-	if p := os.Getenv("CZCLI_CONFIG"); p != "" {
+	if p := os.Getenv("CAX_CONFIG"); p != "" {
 		return p, false
 	}
-	local := filepath.Join(".czcli", "config.yaml")
+	local := filepath.Join(".cax", "config.yaml")
 	if _, err := os.Stat(local); err == nil {
 		return local, false
 	}
@@ -600,7 +600,7 @@ func resolveConfigPath() (path string, isDefault bool) {
 		// No HOME — fall back to the project-local path so the error message is sensible.
 		return local, false
 	}
-	return filepath.Join(home, ".czcli", "config.yaml"), true
+	return filepath.Join(home, ".cax", "config.yaml"), true
 }
 
 // assistantReloader satisfies creator.Reloader by capturing the seven
@@ -716,14 +716,14 @@ func creatorPaths() (skillsDir, agentsDir, commandsDir string) {
 		slog.Warn("creator: cannot resolve home dir; using temp dir", "err", err)
 		home = os.TempDir()
 	}
-	base := filepath.Join(home, ".czcli")
+	base := filepath.Join(home, ".cax")
 	return filepath.Join(base, "skills"),
 		filepath.Join(base, "agents"),
 		filepath.Join(base, "commands")
 }
 
 // ensureDefaultConfig writes the embedded default config to path on first run.
-// It only fires for the user-default path (~/.czcli/config.yaml) and only when
+// It only fires for the user-default path (~/.cax/config.yaml) and only when
 // the file doesn't already exist. Returns true if it created the file so the
 // caller can print a setup message and exit cleanly.
 func ensureDefaultConfig(path string, isDefault bool) (created bool, err error) {

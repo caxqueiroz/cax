@@ -55,7 +55,7 @@ type Manager struct {
 	mu sync.Mutex
 }
 
-// New constructs a Manager. stateFile is typically `~/.czcli/plugins.json`
+// New constructs a Manager. stateFile is typically `~/.cax/plugins.json`
 // (caller resolves ~/). clone may be nil if Install will never be called.
 func New(cfg config.PluginsConfig, stateFile string, clone CloneFunc) *Manager {
 	return &Manager{cfg: cfg, stateFile: stateFile, clone: clone}

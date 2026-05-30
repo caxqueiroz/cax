@@ -30,7 +30,7 @@ type Config struct {
 }
 
 // CLIConfig configures the TUI channel. Theme is the initial theme name;
-// resolution falls back to ~/.czcli/state.json, then a terminal-adapted
+// resolution falls back to ~/.cax/state.json, then a terminal-adapted
 // default-{dark,light}.
 type CLIConfig struct {
 	Theme string `yaml:"theme"`
@@ -88,13 +88,13 @@ type ToolsConfig struct {
 // one-shot slog.Warn is emitted via warnLegacySubagentsDir.
 type SubagentsConfig struct {
 	Enabled bool     `yaml:"enabled"`
-	Dirs    []string `yaml:"dirs"`          // default: [~/.czcli/agents, .czcli/agents]
+	Dirs    []string `yaml:"dirs"`          // default: [~/.cax/agents, .cax/agents]
 	Dir     string   `yaml:"dir,omitempty"` // DEPRECATED: legacy singular; migrated into Dirs at Load time.
 }
 
 // CommandsConfig configures user-level slash-command discovery (Plan 11).
 // Enabled defaults to true when the section is omitted; Dirs defaults to
-// [~/.czcli/commands, .czcli/commands] with tilde expansion applied at Load.
+// [~/.cax/commands, .cax/commands] with tilde expansion applied at Load.
 type CommandsConfig struct {
 	Enabled bool     `yaml:"enabled"`
 	Dirs    []string `yaml:"dirs"`
@@ -118,11 +118,11 @@ type MCPServerConfig struct {
 // SkillsConfig configures dive's skill loader.
 type SkillsConfig struct {
 	Enabled bool     `yaml:"enabled"`
-	Dirs    []string `yaml:"dirs"` // defaults: ["~/.czcli/skills", ".czcli/skills"]
+	Dirs    []string `yaml:"dirs"` // defaults: ["~/.cax/skills", ".cax/skills"]
 }
 
 // PluginsConfig configures Claude Code-compatible plugin discovery.
-// Defaults: enabled, dirs=[~/.czcli/plugins, .czcli/plugins]. ~/ is expanded.
+// Defaults: enabled, dirs=[~/.cax/plugins, .cax/plugins]. ~/ is expanded.
 type PluginsConfig struct {
 	Enabled bool     `yaml:"enabled"`
 	Dirs    []string `yaml:"dirs"`
@@ -229,7 +229,7 @@ func applySubagentDefaults(s *SubagentsConfig) {
 		s.Dirs = []string{s.Dir}
 	}
 	if len(s.Dirs) == 0 {
-		s.Dirs = []string{"~/.czcli/agents", ".czcli/agents"}
+		s.Dirs = []string{"~/.cax/agents", ".cax/agents"}
 	}
 	expanded := make([]string, 0, len(s.Dirs))
 	for _, d := range s.Dirs {
@@ -249,7 +249,7 @@ func applyCommandsDefaults(c *CommandsConfig) {
 		c.Enabled = true
 	}
 	if len(c.Dirs) == 0 {
-		c.Dirs = []string{"~/.czcli/commands", ".czcli/commands"}
+		c.Dirs = []string{"~/.cax/commands", ".cax/commands"}
 	}
 	expanded := make([]string, 0, len(c.Dirs))
 	for _, d := range c.Dirs {
@@ -270,7 +270,7 @@ func applyPluginDefaults(p *PluginsConfig) {
 		p.Enabled = true
 	}
 	if len(p.Dirs) == 0 {
-		p.Dirs = []string{"~/.czcli/plugins", ".czcli/plugins"}
+		p.Dirs = []string{"~/.cax/plugins", ".cax/plugins"}
 	}
 }
 
@@ -285,7 +285,7 @@ func applySkillDefaults(s *SkillsConfig) {
 		s.Enabled = true
 	}
 	if len(s.Dirs) == 0 {
-		s.Dirs = []string{"~/.czcli/skills", ".czcli/skills"}
+		s.Dirs = []string{"~/.cax/skills", ".cax/skills"}
 	}
 	expanded := make([]string, 0, len(s.Dirs))
 	for _, d := range s.Dirs {

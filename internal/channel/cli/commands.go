@@ -607,7 +607,7 @@ func (m model) cmdHooks() string {
 }
 
 // cmdTheme handles "/theme list" and "/theme <name>". Setting persists the
-// choice to ~/.czcli/state.json and the next refreshViewport call applies
+// choice to ~/.cax/state.json and the next refreshViewport call applies
 // the new look.
 func (m *model) cmdTheme(args string) string {
 	args = strings.TrimSpace(args)
