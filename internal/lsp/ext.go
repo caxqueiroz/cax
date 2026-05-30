@@ -1,4 +1,4 @@
-// Package lsp wires Language Server Protocol clients into czcli as a set of
+// Package lsp wires Language Server Protocol clients into cax as a set of
 // generic dive FuncTools. Routing is file-extension → language → server; per
 // the extensibility contracts the default extension map is fixed and may be
 // extended (but not narrowed) per server via LSPServerConfig.Languages.

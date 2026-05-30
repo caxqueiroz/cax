@@ -1,5 +1,5 @@
 // Package plugins implements Claude Code-compatible plugin discovery, parsing,
-// install, and hot-reload for czcli. A plugin is a directory under one of
+// install, and hot-reload for cax. A plugin is a directory under one of
 // cfg.Plugins.Dirs containing .claude-plugin/plugin.json plus optional
 // commands/, .mcp.json, .claude-plugin/lsp.json, .claude-plugin/hooks.json,
 // skills/, and agents/.
@@ -117,7 +117,7 @@ type rawLSPSrv struct {
 }
 
 // ReadLSPServers parses <pluginDir>/.claude-plugin/lsp.json. Accepts two
-// shapes: czcli-native `{"servers": {"<name>": {...}}}` and Claude Code's
+// shapes: cax-native `{"servers": {"<name>": {...}}}` and Claude Code's
 // `{"<lang>": {"command":...,"extensionToLanguage":{".go":"go"}}}`. Returns
 // nil if file missing; logs + returns nil on parse error.
 func ReadLSPServers(pluginDir, pluginName string) []config.LSPServerConfig {
@@ -129,7 +129,7 @@ func ReadLSPServers(pluginDir, pluginName string) []config.LSPServerConfig {
 		}
 		return nil
 	}
-	// Try czcli-native shape first.
+	// Try cax-native shape first.
 	var native struct {
 		Servers map[string]rawLSPSrv `json:"servers"`
 	}

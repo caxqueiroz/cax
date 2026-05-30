@@ -8,7 +8,7 @@ package hooks
 
 // Event identifies an agent lifecycle event a hook can subscribe to. The string
 // values match Claude Code's wire format (hook_event_name) so plugin manifests
-// authored for Claude Code run unchanged in czcli.
+// authored for Claude Code run unchanged in cax.
 type Event string
 
 const (

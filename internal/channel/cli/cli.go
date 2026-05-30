@@ -63,7 +63,7 @@ func WithCreator(b creatorBackend) Option {
 }
 
 // WithHookEntries wires the typed snapshot of plugin-declared hooks the
-// /hooks command renders. The caller (cmd/czcli/main.go) re-computes this
+// /hooks command renders. The caller (cmd/cax/main.go) re-computes this
 // snapshot on every /plugin mutation by reading the dispatcher's Entries().
 func WithHookEntries(entries []hooks.Entry) Option {
 	return func(c *CLI) { c.hookEntries = entries }
@@ -121,7 +121,7 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	// Alt-screen isolates the TUI from the underlying shell; mouse-cell
 	// motion routes the scroll wheel to the in-app viewport instead of the
 	// terminal's scrollback (so scrolling shows past conversation, not the
-	// shell history that was behind us when czcli launched).
+	// shell history that was behind us when cax launched).
 	p := tea.NewProgram(pm, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	pm.send = p.Send
 

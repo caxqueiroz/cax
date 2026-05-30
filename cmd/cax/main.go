@@ -1,4 +1,4 @@
-// Command czcli runs the assistant as a Bubble Tea TUI: it loads config, wires
+// Command cax runs the assistant as a Bubble Tea TUI: it loads config, wires
 // the memory store, multi-provider model, and dive agent, then launches the CLI
 // channel which renders the dashboard and streams replies live.
 package main
@@ -33,7 +33,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "czcli: %v\n", err)
+		fmt.Fprintf(os.Stderr, "cax: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -50,7 +50,7 @@ func run() error {
 	}
 	if created {
 		fmt.Fprintf(os.Stderr,
-			"czcli: wrote a default config to %s\nedit it to set provider model IDs and API keys, then run czcli again\n",
+			"cax: wrote a default config to %s\nedit it to set provider model IDs and API keys, then run cax again\n",
 			path)
 		return nil
 	}
@@ -263,7 +263,7 @@ func (a scheduleAdapter) Reload(ctx context.Context) error {
 func mcpTokenPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "czcli-mcp-tokens.json")
+		return filepath.Join(os.TempDir(), "cax-mcp-tokens.json")
 	}
 	return filepath.Join(home, ".cax", "mcp-tokens.json")
 }
@@ -287,7 +287,7 @@ func themeStatePath() string {
 	if p := theme.StateFile(); p != "" {
 		return p
 	}
-	return filepath.Join(os.TempDir(), "czcli-state.json")
+	return filepath.Join(os.TempDir(), "cax-state.json")
 }
 
 // pluginsStatePath returns the default plugin state file under the user's home
@@ -295,7 +295,7 @@ func themeStatePath() string {
 func pluginsStatePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "czcli-plugins.json")
+		return filepath.Join(os.TempDir(), "cax-plugins.json")
 	}
 	return filepath.Join(home, ".cax", "plugins.json")
 }
@@ -707,7 +707,7 @@ func (a creatorAdapter) CreateCommand(ctx context.Context, name, desc, hint, bod
 }
 
 // creatorPaths resolves the three target directories under the user's HOME.
-// Falls back to a process-local tmp dir when HOME is unresolvable so czcli
+// Falls back to a process-local tmp dir when HOME is unresolvable so cax
 // still starts on broken environments (the create tools will still work; the
 // files just land in a temp dir).
 func creatorPaths() (skillsDir, agentsDir, commandsDir string) {

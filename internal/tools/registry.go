@@ -7,7 +7,7 @@ import (
 	"github.com/deepnoodle-ai/dive/toolkit"
 )
 
-// Registry assembles the dive built-in tools czcli exposes per config, plus the
+// Registry assembles the dive built-in tools cax exposes per config, plus the
 // search_memory recall tool. Bash/Write/Edit are returned as-is; gating happens
 // in the agent's PreToolUse hook via a dive.Dialog (see permission.go).
 //

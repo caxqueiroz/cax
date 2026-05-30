@@ -135,7 +135,7 @@ func composeTitledTop(title string, width int, rb lipgloss.Border, color lipglos
 	return borderStyle.Render(rb.TopLeft + middle + rb.TopRight)
 }
 
-// renderHeader composes the branded header box: `◆ czcli` on the left,
+// renderHeader composes the branded header box: `◆ cax` on the left,
 // dim `personal AI assistant` tagline centered, and the active theme name
 // accented on the right. Width is the full terminal width (the box's outer
 // box matches width - 4 to honor the global 2-space indent).
@@ -152,7 +152,7 @@ func (m model) renderHeader(width int) string {
 		inner = 1
 	}
 
-	left := s.accent.Render("◆") + " " + s.fg.Bold(true).Render("czcli")
+	left := s.accent.Render("◆") + " " + s.fg.Bold(true).Render("cax")
 	right := s.accent.Render(theme.Active().Name)
 	leftW := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)
@@ -453,12 +453,12 @@ func (m model) View() string {
 }
 
 // viewFallback is the minimal layout for terminals shorter than
-// minBoxedHeight. It mirrors the pre-v2 plain-line layout so czcli stays
+// minBoxedHeight. It mirrors the pre-v2 plain-line layout so cax stays
 // usable on tiny SSH/tmux panes.
 func (m model) viewFallback() string {
 	s := styles()
 	sep := s.sep.Render(strings.Repeat("─", m.width))
-	header := leftIndent + s.accent.Render("◆") + " " + s.fg.Bold(true).Render("czcli")
+	header := leftIndent + s.accent.Render("◆") + " " + s.fg.Bold(true).Render("cax")
 	inputBlock := leftIndent + m.input.View()
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,

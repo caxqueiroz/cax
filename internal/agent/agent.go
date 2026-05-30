@@ -1,4 +1,4 @@
-// Package agent assembles the dive.Agent that powers czcli: a multi-provider
+// Package agent assembles the dive.Agent that powers cax: a multi-provider
 // model, permission-gated tools, a recall tool, opt-in sub-agents, MCP, and
 // memory hooks that inject context and persist each turn. model.go owns the
 // multi-provider model; this file owns the agent assembly and turn execution.
@@ -73,7 +73,7 @@ func Build(
 // BuildWithMCPInfos is Build plus the MCP ServerInfos and LSP ServerInfos so
 // Status can render server names without re-querying their managers, plus the
 // Plan 9 *hooks.Dispatcher that wires plugin-declared lifecycle hooks into the
-// dive agent. cmd/czcli/main.go uses this; Plans 7-9 also use it for
+// dive agent. cmd/cax/main.go uses this; Plans 7-9 also use it for
 // plugin-contributed contributions. Plan 8 added lspTools/lspInfos additively,
 // Plan 9 appends hooksDisp, and Plan 12 appends creatorTools — the three
 // create_skill/create_agent/create_command FuncTools wired over the shared
@@ -114,13 +114,13 @@ func BuildWithMCPInfos(
 		hooksDisp: hooksDisp,
 	}
 
-	// MCP tools come from cmd/czcli/main.go via mcp.Connect; mcp.Connect is
+	// MCP tools come from cmd/cax/main.go via mcp.Connect; mcp.Connect is
 	// no longer called inside augmentTools.
 	a.tools = append(a.tools, mcpTools...)
-	// LSP tools come from cmd/czcli/main.go via lsp.New + Manager.Tools().
+	// LSP tools come from cmd/cax/main.go via lsp.New + Manager.Tools().
 	a.tools = append(a.tools, lspTools...)
 	// Creator tools (create_skill/create_agent/create_command) come from
-	// cmd/czcli/main.go via creator.Tools; they wrap the Writer + Reloader
+	// cmd/cax/main.go via creator.Tools; they wrap the Writer + Reloader
 	// pair and trigger Rebuild on every successful write.
 	a.tools = append(a.tools, creatorTools...)
 
@@ -139,7 +139,7 @@ func BuildWithMCPInfos(
 	}
 
 	opts := dive.AgentOptions{
-		Name:         "czcli",
+		Name:         "cax",
 		SystemPrompt: cfg.Persona,
 		Model:        model,
 		Tools:        a.tools,

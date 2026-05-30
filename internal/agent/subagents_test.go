@@ -13,7 +13,7 @@ func buildWithSubagents(t *testing.T, dir string) *Assistant {
 	t.Helper()
 	store := newTestStore(t)
 	cfg := &config.Config{
-		Persona:   "czcli",
+		Persona:   "cax",
 		Memory:    config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:     config.ToolsConfig{FilesEnabled: true},
 		Subagents: config.SubagentsConfig{Enabled: true, Dirs: []string{dir}},

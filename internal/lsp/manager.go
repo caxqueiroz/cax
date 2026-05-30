@@ -130,7 +130,7 @@ func (m *Manager) handshake(ctx context.Context, s *server) error {
 		RootURI: rootURI,
 		WorkspaceFolders: []protocol.WorkspaceFolder{{
 			URI:  string(rootURI),
-			Name: "czcli-root",
+			Name: "cax-root",
 		}},
 		Capabilities: protocol.ClientCapabilities{},
 	}

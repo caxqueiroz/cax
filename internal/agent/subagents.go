@@ -14,7 +14,7 @@ import (
 
 // augmentTools layers sub-agent tools onto the assistant's tool set. MCP
 // tools are now appended in Build before augmentTools runs (Plan 6 routed
-// mcp.Connect through cmd/czcli/main.go), and the catalog merges the
+// mcp.Connect through cmd/cax/main.go), and the catalog merges the
 // built-in personas (GeneralPurpose, Explore, Plan) with any markdown
 // definitions found via FileLoader over cfg.Subagents.Dirs.
 //

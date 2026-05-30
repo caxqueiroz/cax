@@ -47,7 +47,7 @@ type createCommandInput struct {
 func Tools(w Writer, r Reloader) []dive.Tool {
 	skillTool := dive.FuncTool(
 		"create_skill",
-		"Create a new skill: writes a SKILL.md under czcli's skills directory and reloads the agent so the new skill is immediately available.",
+		"Create a new skill: writes a SKILL.md under cax's skills directory and reloads the agent so the new skill is immediately available.",
 		func(ctx context.Context, in *createSkillInput) (*dive.ToolResult, error) {
 			path, err := w.WriteSkill(in.Name, in.Description, in.Body, in.Overwrite)
 			if err != nil {
@@ -66,7 +66,7 @@ func Tools(w Writer, r Reloader) []dive.Tool {
 
 	agentTool := dive.FuncTool(
 		"create_agent",
-		"Create a new sub-agent persona: writes <name>.md under czcli's agents directory and reloads the agent so the new persona is immediately available.",
+		"Create a new sub-agent persona: writes <name>.md under cax's agents directory and reloads the agent so the new persona is immediately available.",
 		func(ctx context.Context, in *createAgentInput) (*dive.ToolResult, error) {
 			path, err := w.WriteAgent(in.Name, in.Description, in.Tools, in.DisallowedTools, in.Body, in.Overwrite)
 			if err != nil {
@@ -85,7 +85,7 @@ func Tools(w Writer, r Reloader) []dive.Tool {
 
 	commandTool := dive.FuncTool(
 		"create_command",
-		"Create a new slash command: writes <name>.md under czcli's commands directory and reloads the agent so /<name> is immediately available.",
+		"Create a new slash command: writes <name>.md under cax's commands directory and reloads the agent so /<name> is immediately available.",
 		func(ctx context.Context, in *createCommandInput) (*dive.ToolResult, error) {
 			path, err := w.WriteCommand(in.Name, in.Description, in.ArgumentHint, in.Body, in.Overwrite)
 			if err != nil {

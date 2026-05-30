@@ -1,4 +1,4 @@
-// Package theme defines czcli's TUI color theme — a small struct of hex
+// Package theme defines cax's TUI color theme — a small struct of hex
 // color strings plus a glamour style name for markdown rendering — and a
 // process-wide registry of named themes loaded from embedded YAML + user
 // YAML files. Themes are swapped live via Set; view.go reads Active() on

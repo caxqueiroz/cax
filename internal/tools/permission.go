@@ -1,4 +1,4 @@
-// Package tools assembles the dive built-in tools czcli exposes, plus the
+// Package tools assembles the dive built-in tools cax exposes, plus the
 // search_memory recall tool and the CLI permission dialog.
 package tools
 

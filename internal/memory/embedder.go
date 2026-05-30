@@ -43,7 +43,7 @@ func vectorString(v []float32) string {
 }
 
 // NewEmbedder builds an Embedder from config. It is the single constructor other
-// packages (e.g. cmd/czcli/main.go) call. The API key is read from the configured
+// packages (e.g. cmd/cax/main.go) call. The API key is read from the configured
 // environment variable (APIKeyEnv, falling back to TokenEnv for parity with the
 // provider config). Only the "openai" provider is supported in the MVP; "bedrock"
 // embeddings are a documented post-MVP follow-up.

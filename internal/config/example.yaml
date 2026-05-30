@@ -1,4 +1,4 @@
-# czcli example configuration.
+# cax example configuration.
 # Providers are tried in order; the first is primary, the rest are fallbacks.
 
 persona: "A concise, helpful personal assistant."
@@ -83,7 +83,7 @@ plugins:
     - ~/.cax/plugins
     - .cax/plugins
 
-# User-level slash commands (Plan 11). czcli scans each dir for *.md files
+# User-level slash commands (Plan 11). cax scans each dir for *.md files
 # with Claude-Code-style frontmatter (description, argument-hint) and merges
 # them into the slash-command set alongside plugin-contributed commands.
 commands:
@@ -92,7 +92,7 @@ commands:
     - ~/.cax/commands
     - .cax/commands
 
-# Language Server Protocol servers (Plan 8). czcli spawns one stdio child per
+# Language Server Protocol servers (Plan 8). cax spawns one stdio child per
 # entry, performs the LSP initialize/initialized handshake, and exposes six
 # generic tools the agent can route by file extension: lsp_definition,
 # lsp_references, lsp_hover, lsp_document_symbols, lsp_workspace_symbols,

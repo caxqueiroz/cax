@@ -1,4 +1,4 @@
-// Package skills wraps dive's top-level skill.Loader for czcli. It loads
+// Package skills wraps dive's top-level skill.Loader for cax. It loads
 // skills from cfg.Dirs ∪ extraDirs (plugin-contributed) and returns a
 // *skill.Loader ready to be registered as a dive.Extension on the agent.
 package skills
@@ -21,7 +21,7 @@ type LoadResult struct {
 }
 
 // logBridge adapts log/slog to dive's skill.Logger so per-provider warnings
-// (e.g. unreadable dir) land in czcli's structured log instead of stderr.
+// (e.g. unreadable dir) land in cax's structured log instead of stderr.
 type logBridge struct{}
 
 func (logBridge) Debug(msg string, args ...any) { slog.Debug("skills: "+msg, args...) }
@@ -32,7 +32,7 @@ func (logBridge) Warn(msg string, args ...any)  { slog.Warn("skills: "+msg, args
 // runs on resumed sessions. Per-skill / per-provider errors are logged and
 // skipped; an aggregate error returns only if every provider failed.
 //
-// czcli treats each configured directory as a direct skill root (containing
+// cax treats each configured directory as a direct skill root (containing
 // <name>/SKILL.md entries), not as a project/home root. That keeps defaults
 // like ".dive/skills" / "~/.dive/skills" meaningful and prevents dive's
 // DefaultFilesystemProvider from re-prefixing them.

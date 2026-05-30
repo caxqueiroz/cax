@@ -1,4 +1,4 @@
-// Package config loads and validates czcli's YAML configuration.
+// Package config loads and validates cax's YAML configuration.
 package config
 
 import (
@@ -12,7 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the top-level czcli configuration.
+// Config is the top-level cax configuration.
 type Config struct {
 	Persona    string           `yaml:"persona"`
 	Providers  []ProviderConfig `yaml:"providers"`
@@ -217,7 +217,7 @@ func warnLegacySubagentsDir(dir string) {
 }
 
 // applySubagentDefaults migrates the legacy singular Dir into Dirs (with a
-// one-shot warning), then falls back to the two czcli-namespaced defaults
+// one-shot warning), then falls back to the two cax-namespaced defaults
 // when nothing is configured. Tilde-expansion is applied to the final list.
 func applySubagentDefaults(s *SubagentsConfig) {
 	if !s.Enabled && len(s.Dirs) == 0 && s.Dir == "" {
@@ -243,7 +243,7 @@ func applySubagentDefaults(s *SubagentsConfig) {
 }
 
 // applyCommandsDefaults mirrors applySkillDefaults: omission of the
-// `commands:` block enables discovery in the two czcli-namespaced roots.
+// `commands:` block enables discovery in the two cax-namespaced roots.
 func applyCommandsDefaults(c *CommandsConfig) {
 	if !c.Enabled && len(c.Dirs) == 0 {
 		c.Enabled = true

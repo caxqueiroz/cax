@@ -190,7 +190,7 @@ func TestViewIncludesAllRegions(t *testing.T) {
 	m.history = []historyEntry{{who: "you", text: "hey"}, {who: "bot", text: "hi!"}}
 	m.refreshViewport()
 	out := m.View()
-	for _, want := range []string{"czcli", "conversation", "message", "buffer", "❯", "claude-opus", "1d", "mem"} {
+	for _, want := range []string{"cax", "conversation", "message", "buffer", "❯", "claude-opus", "1d", "mem"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q", want)
 		}
@@ -235,7 +235,7 @@ func TestViewFallbackOnTinyHeight(t *testing.T) {
 	if out == "" {
 		t.Fatalf("fallback should not produce an empty View")
 	}
-	if !strings.Contains(out, "czcli") {
+	if !strings.Contains(out, "cax") {
 		t.Errorf("fallback missing brand: %q", out)
 	}
 	if !strings.Contains(out, "buffer") {

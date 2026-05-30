@@ -22,7 +22,7 @@ func buildTestAssistant(t *testing.T, reply string) (*Assistant, *scriptLLM) {
 	store := newTestStore(t)
 	model := newScriptLLM(reply)
 	cfg := &config.Config{
-		Persona: "You are czcli, a helpful assistant.",
+		Persona: "You are cax, a helpful assistant.",
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true, BashEnabled: true, RequireConfirm: false},
 	}
@@ -52,7 +52,7 @@ func TestBuildAcceptsSkillsAndMCPTools(t *testing.T) {
 	store := newTestStore(t)
 	model := newScriptLLM("dummy")
 	cfg := &config.Config{
-		Persona: "czcli",
+		Persona: "cax",
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
@@ -102,7 +102,7 @@ func TestBuildIncludesLSPToolsAndStatus(t *testing.T) {
 	store := newTestStore(t)
 	model := newScriptLLM("dummy")
 	cfg := &config.Config{
-		Persona: "czcli",
+		Persona: "cax",
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
@@ -146,7 +146,7 @@ func TestStatusReportsMCPServerNames(t *testing.T) {
 	store := newTestStore(t)
 	model := newScriptLLM("dummy")
 	cfg := &config.Config{
-		Persona: "czcli",
+		Persona: "cax",
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
@@ -178,7 +178,7 @@ func TestRebuildSwapsTools(t *testing.T) {
 	store := newTestStore(t)
 	model := newScriptLLM("dummy")
 	cfg := &config.Config{
-		Persona: "czcli",
+		Persona: "cax",
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
@@ -221,7 +221,7 @@ func TestBuildWithMCPInfos_AppendsCreatorToolsToRegistry(t *testing.T) {
 	store := newTestStore(t)
 	model := newScriptLLM("dummy")
 	cfg := &config.Config{
-		Persona: "czcli",
+		Persona: "cax",
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
@@ -250,7 +250,7 @@ func TestRebuild_PicksUpNewCreatorTools(t *testing.T) {
 	store := newTestStore(t)
 	model := newScriptLLM("dummy")
 	cfg := &config.Config{
-		Persona: "czcli",
+		Persona: "cax",
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
@@ -293,7 +293,7 @@ func TestBuild_AssemblesAgentWithTools(t *testing.T) {
 }
 
 func TestHandle_EmitsTextAndReturnsReply(t *testing.T) {
-	a, _ := buildTestAssistant(t, "hello from czcli")
+	a, _ := buildTestAssistant(t, "hello from cax")
 	ctx := context.Background()
 
 	var events []channel.StreamEvent
@@ -308,7 +308,7 @@ func TestHandle_EmitsTextAndReturnsReply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if reply.Text != "hello from czcli" {
+	if reply.Text != "hello from cax" {
 		t.Fatalf("reply = %q", reply.Text)
 	}
 

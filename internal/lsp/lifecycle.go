@@ -11,7 +11,7 @@ import (
 
 // ensureOpen sends a textDocument/didOpen notification for path on s, unless
 // the file is already tracked as open. It always uses the file's CURRENT
-// on-disk text (czcli does not buffer edits between turns).
+// on-disk text (cax does not buffer edits between turns).
 func (m *Manager) ensureOpen(ctx context.Context, s *server, path string) error {
 	u := string(uri.File(path))
 	s.mu.Lock()

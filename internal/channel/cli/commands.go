@@ -113,7 +113,7 @@ func (m *model) cmdNew(args string) (string, bool, *creator.Wizard) {
 
 // cmdReload triggers the wired pluginBackend's Rebuild (which re-runs the
 // full plugins → skills → mcp → lsp → hooks → assistant.Rebuild chain in
-// cmd/czcli/main.go). Without a wired backend, returns a usage hint.
+// cmd/cax/main.go). Without a wired backend, returns a usage hint.
 func (m model) cmdReload() string {
 	if m.plugins == nil {
 		return "reload: not available (plugins backend not wired); set plugins.enabled: true in config.yaml"

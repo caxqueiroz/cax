@@ -22,7 +22,7 @@ import (
 )
 
 // scheduleBackend is the store-backed CRUD surface the /schedule command drives.
-// It is satisfied in cmd/czcli by an adapter over memory.Store + scheduler so the
+// It is satisfied in cmd/cax by an adapter over memory.Store + scheduler so the
 // CLI package depends only on config, not on the scheduler package.
 type scheduleBackend interface {
 	List(ctx context.Context) ([]config.ScheduleConfig, error)
@@ -32,7 +32,7 @@ type scheduleBackend interface {
 
 // pluginBackend is the surface the /plugin command drives. It mirrors
 // scheduleBackend's split: the CLI depends only on this minimal contract;
-// cmd/czcli wires a real plugins.Manager adapter. Every mutation triggers
+// cmd/cax wires a real plugins.Manager adapter. Every mutation triggers
 // Rebuild so the agent picks up new contributions on the next turn.
 type pluginBackend interface {
 	List(ctx context.Context) ([]PluginListItem, error)
@@ -44,7 +44,7 @@ type pluginBackend interface {
 }
 
 // creatorBackend is the surface the /new wizard drives. Implementations call
-// the shared Writer + Reloader pair (cmd/czcli wires the real one over the
+// the shared Writer + Reloader pair (cmd/cax wires the real one over the
 // same Writer + Reloader the create_* FuncTools use, so /new and
 // natural-language requests produce identical files). Nil-safe: when
 // unwired, the wizard's confirm step reports the missing backend.

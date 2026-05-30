@@ -1,6 +1,6 @@
 // Package creator implements the "just-ask" workflow for creating skills,
 // agents, and slash commands. Writer materializes Claude-Code-compatible
-// markdown files under czcli's namespaced directories; Tools wraps the three
+// markdown files under cax's namespaced directories; Tools wraps the three
 // writers in dive FuncTools so the agent can call them in response to a
 // natural-language request. After every successful write the package calls
 // Reloader.Rebuild so the running agent picks up the new contribution on the
@@ -41,7 +41,7 @@ func validateName(name string) error {
 	return nil
 }
 
-// Writer materializes files under czcli's namespaced directories. The three
+// Writer materializes files under cax's namespaced directories. The three
 // directory paths are caller-resolved (HOME-expanded) so the package itself
 // performs no I/O outside of the configured roots.
 type Writer struct {

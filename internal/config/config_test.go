@@ -22,7 +22,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 providers:
   - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
 embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
-memory: {db_path: /tmp/czcli/memory.db}
+memory: {db_path: /tmp/cax/memory.db}
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -136,7 +136,7 @@ func TestProviderEnvRefResolves(t *testing.T) {
 providers:
   - {name: openai, model: gpt-5.4, api_key_env: CAX_TEST_OPENAI_KEY}
 embeddings: {provider: openai, dim: 1536}
-memory: {db_path: /tmp/czcli/memory.db}
+memory: {db_path: /tmp/cax/memory.db}
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -153,7 +153,7 @@ func TestLoadAppliesSkillsDefaults(t *testing.T) {
 providers:
   - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
 embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
-memory: {db_path: /tmp/czcli/memory.db}
+memory: {db_path: /tmp/cax/memory.db}
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -266,7 +266,7 @@ embeddings:
   dim: 1536
   api_key_env: OPENAI_API_KEY
 memory:
-  db_path: /tmp/czcli.db
+  db_path: /tmp/cax.db
 cli:
   theme: dracula
 `
@@ -296,7 +296,7 @@ embeddings:
   dim: 1536
   api_key_env: OPENAI_API_KEY
 memory:
-  db_path: /tmp/czcli.db
+  db_path: /tmp/cax.db
 `
 	if err := os.WriteFile(p, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
@@ -315,7 +315,7 @@ func TestLoadAppliesSubagentsAndCommandsDefaults(t *testing.T) {
 providers:
   - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
 embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
-memory: {db_path: /tmp/czcli/memory.db}
+memory: {db_path: /tmp/cax/memory.db}
 `)
 	cfg, err := Load(path)
 	if err != nil {

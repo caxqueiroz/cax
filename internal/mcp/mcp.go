@@ -1,7 +1,7 @@
 // Package mcp connects configured MCP servers (stdio or HTTP) using dive's
 // experimental/mcp module and exposes their tools as dive.Tool. OAuth tokens
 // are persisted to a file-backed FileOAuthTokenStore so they survive across
-// czcli runs.
+// cax runs.
 package mcp
 
 import (
@@ -33,7 +33,7 @@ type ServerInfo struct {
 //
 // tokenStorePath is the on-disk path used for any server that opts into
 // OAuth (currently keyed via OAuth on the dive ServerConfig). Today no
-// czcli MCPServerConfig fields surface OAuth, so the path is reserved for
+// cax MCPServerConfig fields surface OAuth, so the path is reserved for
 // when plugins or per-server config expose it (Plan 7+).
 func Connect(ctx context.Context, servers []config.MCPServerConfig, tokenStorePath string) ([]dive.Tool, []ServerInfo, error) {
 	if len(servers) == 0 {
@@ -52,7 +52,7 @@ func Connect(ctx context.Context, servers []config.MCPServerConfig, tokenStorePa
 	infos := make([]ServerInfo, 0, len(servers))
 	configs := make(map[string]*divemcp.ServerConfig, len(servers))
 
-	// Stage 1: translate czcli config → dive ServerConfig, dropping invalid
+	// Stage 1: translate cax config → dive ServerConfig, dropping invalid
 	// entries with a failed ServerInfo so callers see why each was skipped.
 	for _, s := range servers {
 		transport, dcfg, err := toServerConfig(s)
@@ -105,7 +105,7 @@ func Connect(ctx context.Context, servers []config.MCPServerConfig, tokenStorePa
 	return tools, infos, nil
 }
 
-// toServerConfig maps czcli's MCPServerConfig into dive's ServerConfig and
+// toServerConfig maps cax's MCPServerConfig into dive's ServerConfig and
 // selects the transport. Stdio wins when both Command and URL are set; that
 // matches the dive client's own dispatch.
 func toServerConfig(s config.MCPServerConfig) (string, *divemcp.ServerConfig, error) {

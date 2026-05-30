@@ -166,7 +166,7 @@ func joinFeedback(a, b string) string {
 
 // buildEnvelope renders the JSON object written to a hook's stdin. The shape
 // mirrors Claude Code's hook envelope so plugins authored for Claude Code work
-// in czcli: a base {hook_event_name, ...} merged with any payload-supplied
+// in cax: a base {hook_event_name, ...} merged with any payload-supplied
 // fields (e.g. tool_name, tool_input, prompt).
 func buildEnvelope(ev Event, payload any) ([]byte, error) {
 	env := map[string]any{
