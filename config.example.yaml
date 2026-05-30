@@ -44,7 +44,25 @@ subagents:
   enabled: true
   dir: .dive/agents
 
+# MCP servers (real connections via dive experimental/mcp).
+# Each server uses stdio when `command` is set, HTTP when `url` is set.
 mcp:
   servers: []
+  # Example stdio server (filesystem MCP):
+  # - name: fs
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+  # Example HTTP server:
+  # - name: remote
+  #   url: https://mcp.example.com/sse
+
+# Skills (markdown-defined agent capabilities).
+# Loaded from cfg.Dirs (defaults: .dive/skills and ~/.dive/skills) plus any
+# plugin-contributed directories (Plan 7).
+skills:
+  enabled: true
+  dirs:
+    - .dive/skills
+    - ~/.dive/skills
 
 schedules: []
