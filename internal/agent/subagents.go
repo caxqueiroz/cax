@@ -16,7 +16,7 @@ import (
 // tools are now appended in Build before augmentTools runs (Plan 6 routed
 // mcp.Connect through cmd/czcli/main.go), and the catalog merges the
 // built-in personas (GeneralPurpose, Explore, Plan) with any markdown
-// definitions found via FileLoader over cfg.Subagents.Dir.
+// definitions found via FileLoader over cfg.Subagents.Dirs.
 //
 // dive v1.7.0 exposes sub-agents through the top-level subagent package
 // (a plain map[string]*Definition) plus toolkit/orchestration's Agent /
@@ -37,11 +37,11 @@ func (a *Assistant) augmentTools(ctx context.Context, model llm.StreamingLLM) er
 		"Plan":           subagent.Plan,
 	}
 
-	if dir := a.cfg.Subagents.Dir; dir != "" {
-		loader := &subagent.FileLoader{Directories: []string{dir}}
+	if dirs := a.cfg.Subagents.Dirs; len(dirs) > 0 {
+		loader := &subagent.FileLoader{Directories: append([]string(nil), dirs...)}
 		loaded, lerr := loader.Load(ctx)
 		if lerr != nil {
-			slog.Warn("subagent file loader failed", "dir", dir, "err", lerr)
+			slog.Warn("subagent file loader failed", "dirs", dirs, "err", lerr)
 		} else {
 			for name, def := range loaded {
 				defs[name] = def

@@ -47,7 +47,9 @@ tools:
 
 subagents:
   enabled: true
-  dir: .dive/agents
+  dirs:
+    - ~/.czcli/agents
+    - .czcli/agents
 
 # MCP servers (real connections via dive experimental/mcp).
 # Each server uses stdio when `command` is set, HTTP when `url` is set.
@@ -62,13 +64,13 @@ mcp:
   #   url: https://mcp.example.com/sse
 
 # Skills (markdown-defined agent capabilities).
-# Loaded from cfg.Dirs (defaults: .dive/skills and ~/.dive/skills) plus any
+# Loaded from cfg.Dirs (defaults: ~/.czcli/skills and .czcli/skills) plus any
 # plugin-contributed directories (Plan 7).
 skills:
   enabled: true
   dirs:
-    - .dive/skills
-    - ~/.dive/skills
+    - ~/.czcli/skills
+    - .czcli/skills
 
 # Plugins (Claude Code-compatible bundles dropped into ~/.czcli/plugins/<name>
 # or .czcli/plugins/<name>). Each plugin may contribute skills, agents, MCP
@@ -80,6 +82,15 @@ plugins:
   dirs:
     - ~/.czcli/plugins
     - .czcli/plugins
+
+# User-level slash commands (Plan 11). czcli scans each dir for *.md files
+# with Claude-Code-style frontmatter (description, argument-hint) and merges
+# them into the slash-command set alongside plugin-contributed commands.
+commands:
+  enabled: true
+  dirs:
+    - ~/.czcli/commands
+    - .czcli/commands
 
 # Language Server Protocol servers (Plan 8). czcli spawns one stdio child per
 # entry, performs the LSP initialize/initialized handshake, and exposes six

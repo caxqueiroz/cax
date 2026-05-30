@@ -37,9 +37,7 @@ memory: {db_path: /tmp/czcli/memory.db}
 	if cfg.Providers[0].MaxTokens != 4096 {
 		t.Errorf("provider MaxTokens default = %d, want 4096", cfg.Providers[0].MaxTokens)
 	}
-	if cfg.Subagents.Dir != ".dive/agents" {
-		t.Errorf("Subagents.Dir default = %q, want .dive/agents", cfg.Subagents.Dir)
-	}
+	// Subagents defaults are covered by TestLoadAppliesSubagentsAndCommandsDefaults.
 }
 
 func TestLoadValidationErrors(t *testing.T) {
@@ -168,7 +166,7 @@ memory: {db_path: /tmp/czcli/memory.db}
 	if err != nil {
 		t.Fatalf("UserHomeDir: %v", err)
 	}
-	want := []string{".dive/skills", filepath.Join(home, ".dive/skills")}
+	want := []string{filepath.Join(home, ".czcli/skills"), ".czcli/skills"}
 	if len(cfg.Skills.Dirs) != len(want) {
 		t.Fatalf("Skills.Dirs len = %d, want %d (%v)", len(cfg.Skills.Dirs), len(want), cfg.Skills.Dirs)
 	}
@@ -309,6 +307,110 @@ memory:
 	}
 	if cfg.CLI.Theme != "" {
 		t.Fatalf("CLI.Theme default = %q want empty", cfg.CLI.Theme)
+	}
+}
+
+func TestLoadAppliesSubagentsAndCommandsDefaults(t *testing.T) {
+	path := writeYAML(t, `
+providers:
+  - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
+embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
+memory: {db_path: /tmp/czcli/memory.db}
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	wantSub := []string{filepath.Join(home, ".czcli/agents"), ".czcli/agents"}
+	if len(cfg.Subagents.Dirs) != len(wantSub) {
+		t.Fatalf("Subagents.Dirs = %v, want %v", cfg.Subagents.Dirs, wantSub)
+	}
+	for i, d := range wantSub {
+		if cfg.Subagents.Dirs[i] != d {
+			t.Errorf("Subagents.Dirs[%d] = %q, want %q", i, cfg.Subagents.Dirs[i], d)
+		}
+	}
+	wantCmd := []string{filepath.Join(home, ".czcli/commands"), ".czcli/commands"}
+	if len(cfg.Commands.Dirs) != len(wantCmd) {
+		t.Fatalf("Commands.Dirs = %v, want %v", cfg.Commands.Dirs, wantCmd)
+	}
+	for i, d := range wantCmd {
+		if cfg.Commands.Dirs[i] != d {
+			t.Errorf("Commands.Dirs[%d] = %q, want %q", i, cfg.Commands.Dirs[i], d)
+		}
+	}
+	if !cfg.Commands.Enabled {
+		t.Errorf("Commands.Enabled default = false, want true")
+	}
+	if !cfg.Subagents.Enabled {
+		t.Errorf("Subagents.Enabled default = false, want true")
+	}
+}
+
+func TestLoadMigratesLegacySubagentsDir(t *testing.T) {
+	path := writeYAML(t, `
+providers:
+  - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
+embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
+memory: {db_path: /tmp/x.db}
+subagents:
+  enabled: true
+  dir: ./legacy/agents
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Subagents.Dirs) != 1 || cfg.Subagents.Dirs[0] != "./legacy/agents" {
+		t.Fatalf("Subagents.Dirs = %v, want [./legacy/agents] (migrated from singular dir)", cfg.Subagents.Dirs)
+	}
+}
+
+func TestLoadDirsWinsOverLegacyDir(t *testing.T) {
+	path := writeYAML(t, `
+providers:
+  - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
+embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
+memory: {db_path: /tmp/x.db}
+subagents:
+  enabled: true
+  dir: ./legacy/agents
+  dirs: [./modern/agents]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Subagents.Dirs) != 1 || cfg.Subagents.Dirs[0] != "./modern/agents" {
+		t.Fatalf("Subagents.Dirs = %v, want [./modern/agents] (Dirs wins)", cfg.Subagents.Dirs)
+	}
+}
+
+func TestLoadSubagentsAndCommandsTildeExpansion(t *testing.T) {
+	path := writeYAML(t, `
+providers:
+  - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
+embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
+memory: {db_path: /tmp/x.db}
+subagents:
+  dirs: [~/agents-home, ./agents-local]
+commands:
+  dirs: [~/cmds-home, ./cmds-local]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	home, _ := os.UserHomeDir()
+	if cfg.Subagents.Dirs[0] != filepath.Join(home, "agents-home") || cfg.Subagents.Dirs[1] != "./agents-local" {
+		t.Errorf("Subagents.Dirs = %v, want [%s, ./agents-local]", cfg.Subagents.Dirs, filepath.Join(home, "agents-home"))
+	}
+	if cfg.Commands.Dirs[0] != filepath.Join(home, "cmds-home") || cfg.Commands.Dirs[1] != "./cmds-local" {
+		t.Errorf("Commands.Dirs = %v, want [%s, ./cmds-local]", cfg.Commands.Dirs, filepath.Join(home, "cmds-home"))
 	}
 }
 

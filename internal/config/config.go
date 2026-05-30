@@ -3,9 +3,11 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,6 +23,7 @@ type Config struct {
 	MCP        MCPConfig        `yaml:"mcp"`
 	Skills     SkillsConfig     `yaml:"skills"`
 	Plugins    PluginsConfig    `yaml:"plugins"`
+	Commands   CommandsConfig   `yaml:"commands"`
 	LSP        LSPConfig        `yaml:"lsp"`
 	CLI        CLIConfig        `yaml:"cli"`
 	Schedules  []ScheduleConfig `yaml:"schedules"`
@@ -79,9 +82,22 @@ type ToolsConfig struct {
 }
 
 // SubagentsConfig configures sub-agent personas.
+// Dirs is the canonical list of search directories; Dir is the legacy
+// singular field kept only for one-release backward compatibility. If Dir is
+// non-empty and Dirs is empty at Load time, Dirs is set to []string{Dir} and a
+// one-shot slog.Warn is emitted via warnLegacySubagentsDir.
 type SubagentsConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Dir     string `yaml:"dir"` // default ".dive/agents"
+	Enabled bool     `yaml:"enabled"`
+	Dirs    []string `yaml:"dirs"`           // default: [~/.czcli/agents, .czcli/agents]
+	Dir     string   `yaml:"dir,omitempty"`  // DEPRECATED: legacy singular; migrated into Dirs at Load time.
+}
+
+// CommandsConfig configures user-level slash-command discovery (Plan 11).
+// Enabled defaults to true when the section is omitted; Dirs defaults to
+// [~/.czcli/commands, .czcli/commands] with tilde expansion applied at Load.
+type CommandsConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Dirs    []string `yaml:"dirs"`
 }
 
 // MCPConfig lists MCP servers.
@@ -102,7 +118,7 @@ type MCPServerConfig struct {
 // SkillsConfig configures dive's skill loader.
 type SkillsConfig struct {
 	Enabled bool     `yaml:"enabled"`
-	Dirs    []string `yaml:"dirs"` // defaults: [".dive/skills", "~/.dive/skills"]
+	Dirs    []string `yaml:"dirs"` // defaults: ["~/.czcli/skills", ".czcli/skills"]
 }
 
 // PluginsConfig configures Claude Code-compatible plugin discovery.
@@ -177,9 +193,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.Memory.RecallK == 0 {
 		cfg.Memory.RecallK = 5
 	}
-	if cfg.Subagents.Dir == "" {
-		cfg.Subagents.Dir = ".dive/agents"
-	}
+	applySubagentDefaults(&cfg.Subagents)
 	for i := range cfg.Providers {
 		if cfg.Providers[i].MaxTokens == 0 {
 			cfg.Providers[i].MaxTokens = 4096
@@ -187,6 +201,65 @@ func applyDefaults(cfg *Config) {
 	}
 	applySkillDefaults(&cfg.Skills)
 	applyPluginDefaults(&cfg.Plugins)
+	applyCommandsDefaults(&cfg.Commands)
+}
+
+var subagentsDirWarnOnce sync.Once
+
+// warnLegacySubagentsDir logs a one-shot deprecation warning the first time a
+// config file with the legacy singular `subagents.dir` is loaded.
+func warnLegacySubagentsDir(dir string) {
+	subagentsDirWarnOnce.Do(func() {
+		slog.Warn("config: subagents.dir (singular) is deprecated; migrate to subagents.dirs",
+			"legacy_value", dir,
+			"migrated_to", []string{dir})
+	})
+}
+
+// applySubagentDefaults migrates the legacy singular Dir into Dirs (with a
+// one-shot warning), then falls back to the two czcli-namespaced defaults
+// when nothing is configured. Tilde-expansion is applied to the final list.
+func applySubagentDefaults(s *SubagentsConfig) {
+	if !s.Enabled && len(s.Dirs) == 0 && s.Dir == "" {
+		// Field omission == enabled by default (mirrors Skills/Plugins).
+		s.Enabled = true
+	}
+	if len(s.Dirs) == 0 && s.Dir != "" {
+		warnLegacySubagentsDir(s.Dir)
+		s.Dirs = []string{s.Dir}
+	}
+	if len(s.Dirs) == 0 {
+		s.Dirs = []string{"~/.czcli/agents", ".czcli/agents"}
+	}
+	expanded := make([]string, 0, len(s.Dirs))
+	for _, d := range s.Dirs {
+		e, err := expandHome(d)
+		if err != nil || e == "" {
+			continue
+		}
+		expanded = append(expanded, e)
+	}
+	s.Dirs = expanded
+}
+
+// applyCommandsDefaults mirrors applySkillDefaults: omission of the
+// `commands:` block enables discovery in the two czcli-namespaced roots.
+func applyCommandsDefaults(c *CommandsConfig) {
+	if !c.Enabled && len(c.Dirs) == 0 {
+		c.Enabled = true
+	}
+	if len(c.Dirs) == 0 {
+		c.Dirs = []string{"~/.czcli/commands", ".czcli/commands"}
+	}
+	expanded := make([]string, 0, len(c.Dirs))
+	for _, d := range c.Dirs {
+		e, err := expandHome(d)
+		if err != nil || e == "" {
+			continue
+		}
+		expanded = append(expanded, e)
+	}
+	c.Dirs = expanded
 }
 
 // applyPluginDefaults mirrors applySkillDefaults: full omission of the
@@ -212,7 +285,7 @@ func applySkillDefaults(s *SkillsConfig) {
 		s.Enabled = true
 	}
 	if len(s.Dirs) == 0 {
-		s.Dirs = []string{".dive/skills", "~/.dive/skills"}
+		s.Dirs = []string{"~/.czcli/skills", ".czcli/skills"}
 	}
 	expanded := make([]string, 0, len(s.Dirs))
 	for _, d := range s.Dirs {
