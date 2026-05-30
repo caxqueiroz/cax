@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/caxqueiroz/czcli/internal/channel"
+	"github.com/caxqueiroz/czcli/internal/creator"
 	"github.com/caxqueiroz/czcli/internal/theme"
 )
 
@@ -185,6 +186,126 @@ func TestCtrlLDispatchesModelCommand(t *testing.T) {
 	}
 	if m.history[len(m.history)-1].who != "sys" {
 		t.Errorf("last history who = %q, want sys", m.history[len(m.history)-1].who)
+	}
+}
+
+// feedLine simulates "user types <line>, presses Enter" through the model's
+// submit path. The wizard tests use it to drive the description → tools →
+// body → confirm machine without spinning up bubbletea.
+func feedLine(m model, line string) model {
+	m.input.SetValue(line)
+	next, _ := m.submit()
+	return next.(model)
+}
+
+func TestNewWizard_SkillHappyPath_ViaSubmit(t *testing.T) {
+	fb := &fakeCreatorBackend{}
+	m := newModel(80, 24)
+	m.creator = fb
+	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// /new skill explain-go-embedding installs the wizard and prints the
+	// description prompt.
+	m.input.SetValue("/new skill explain-go-embedding")
+	next, _ := m.submit()
+	m = next.(model)
+	if m.wizard == nil {
+		t.Fatalf("/new skill should install a wizard")
+	}
+	if m.wizard.Step != creator.WizardStepDescription {
+		t.Fatalf("expected description step; got %v", m.wizard.Step)
+	}
+	// During an active wizard, plain-text submit must NOT start a streaming
+	// turn — verify before we feed input through it.
+	m = feedLine(m, "Explain Go embedding succinctly.")
+	if m.streaming {
+		t.Fatalf("wizard submission must not start a streaming turn")
+	}
+	if m.wizard.Step != creator.WizardStepBody {
+		t.Fatalf("after description, expected body step; got %v", m.wizard.Step)
+	}
+	m = feedLine(m, "Use a worked example.")
+	if m.wizard.Step != creator.WizardStepConfirm {
+		t.Fatalf("after body, expected confirm step; got %v", m.wizard.Step)
+	}
+	m = feedLine(m, "y")
+	if fb.called != 1 || fb.kind != "skill" || fb.name != "explain-go-embedding" {
+		t.Fatalf("backend not invoked correctly: %+v", fb)
+	}
+	if m.wizard != nil {
+		t.Fatalf("wizard should clear after confirm; got: %+v", m.wizard)
+	}
+	if m.streaming {
+		t.Fatalf("confirm step must not start a streaming turn")
+	}
+	last := m.history[len(m.history)-1].text
+	if !strings.Contains(last, "wrote") || !strings.Contains(last, "explain-go-embedding") {
+		t.Fatalf("expected success message naming the file; got: %q", last)
+	}
+}
+
+func TestNewWizard_DeclineAtConfirmClears(t *testing.T) {
+	fb := &fakeCreatorBackend{}
+	m := newModel(80, 24)
+	m.creator = fb
+	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	m.input.SetValue("/new skill foo")
+	next, _ := m.submit()
+	m = next.(model)
+	m = feedLine(m, "desc")
+	m = feedLine(m, "body")
+	m = feedLine(m, "n") // decline
+	if m.wizard != nil {
+		t.Fatalf("wizard should clear after decline")
+	}
+	if fb.called != 0 {
+		t.Fatalf("backend must not be called on decline; got %d", fb.called)
+	}
+}
+
+func TestNewWizard_AgentRoutesToolsStep(t *testing.T) {
+	fb := &fakeCreatorBackend{}
+	m := newModel(80, 24)
+	m.creator = fb
+	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.input.SetValue("/new agent reviewer")
+	next, _ := m.submit()
+	m = next.(model)
+	m = feedLine(m, "Reviews Go diffs.")
+	if m.wizard.Step != creator.WizardStepToolsOrHint {
+		t.Fatalf("agent flow should hit tools step; got %v", m.wizard.Step)
+	}
+	m = feedLine(m, "Read, Glob")
+	if m.wizard.Step != creator.WizardStepBody {
+		t.Fatalf("after tools, expected body step; got %v", m.wizard.Step)
+	}
+	m = feedLine(m, "Be terse.")
+	m = feedLine(m, "y")
+	if fb.called != 1 || fb.kind != "agent" {
+		t.Fatalf("backend not called correctly: %+v", fb)
+	}
+	if len(fb.tools) != 2 || fb.tools[0] != "Read" || fb.tools[1] != "Glob" {
+		t.Fatalf("tools = %v, want [Read Glob]", fb.tools)
+	}
+}
+
+func TestNewWizard_CancelMidFlowDoesNotInvokeBackend(t *testing.T) {
+	fb := &fakeCreatorBackend{}
+	m := newModel(80, 24)
+	m.creator = fb
+	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.input.SetValue("/new skill foo")
+	next, _ := m.submit()
+	m = next.(model)
+	m.input.SetValue("/cancel")
+	next, _ = m.submit()
+	m = next.(model)
+	if m.wizard != nil {
+		t.Fatalf("/cancel should clear the wizard")
+	}
+	if fb.called != 0 {
+		t.Fatalf("backend must not be called when /cancel aborts; got %d", fb.called)
 	}
 }
 

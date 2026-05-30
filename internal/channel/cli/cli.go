@@ -25,6 +25,7 @@ type CLI struct {
 	statusInterval time.Duration
 	sched          scheduleBackend
 	plugins        pluginBackend
+	creator        creatorBackend
 	hookEntries    []hooks.Entry
 	userCommands   []plugins.PluginCommand
 	themeStateFile string
@@ -51,6 +52,14 @@ func WithScheduler(b scheduleBackend) Option {
 // When unset, /plugin reports that plugins are not available.
 func WithPlugins(b pluginBackend) Option {
 	return func(c *CLI) { c.plugins = b }
+}
+
+// WithCreator wires the /new wizard's creatorBackend. When unset, /new
+// activates the wizard but the final confirm step reports the backend is
+// not configured (the create_skill/agent/command FuncTools still work
+// regardless because they go through the agent, not the CLI).
+func WithCreator(b creatorBackend) Option {
+	return func(c *CLI) { c.creator = b }
 }
 
 // WithHookEntries wires the typed snapshot of plugin-declared hooks the
@@ -98,6 +107,7 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	m := newModel(80, 24)
 	m.sched = c.sched
 	m.plugins = c.plugins
+	m.creator = c.creator
 	m.hookEntries = c.hookEntries
 	m.userCommands = c.userCommands
 	m.themeStateFile = c.themeStateFile

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/creator"
 	"github.com/caxqueiroz/czcli/internal/theme"
 )
 
@@ -24,42 +25,90 @@ func parseCommand(line string) (name, args string) {
 	return line, ""
 }
 
-// handleCommand dispatches a slash command and returns display output plus a
-// quit flag. It reads only the latest status snapshot already in the model.
-// Pointer receiver: the /theme handler mutates the active theme registry
-// and needs to call m.refreshViewport() so the new look applies immediately.
-func (m *model) handleCommand(line string) (string, bool) {
+// handleCommand dispatches a slash command and returns display output, a
+// quit flag, and an optional wizard to install on the model. Only /new sets
+// the wizard pointer; every other command returns nil for it. The wizard
+// is read by submit() in model.go to route subsequent text through the /new
+// state machine. Pointer receiver: the /theme handler mutates the active
+// theme registry and needs to call m.refreshViewport().
+func (m *model) handleCommand(line string) (string, bool, *creator.Wizard) {
 	name, args := parseCommand(line)
 	switch name {
 	case "quit", "exit":
-		return "", true
+		return "", true, nil
+	case "cancel":
+		// /cancel clears an active wizard. When no wizard is active we fall
+		// through to a hint so users discover the command's purpose.
+		if m.wizard != nil {
+			m.wizard = nil
+			return "/new: cancelled", false, nil
+		}
+		return "nothing to cancel", false, nil
 	case "stats":
-		return m.cmdStats(), false
+		return m.cmdStats(), false, nil
 	case "tools":
-		return m.cmdTools(), false
+		return m.cmdTools(), false, nil
 	case "agents":
-		return m.cmdAgents(), false
+		return m.cmdAgents(), false, nil
 	case "schedule":
-		return m.cmdSchedule(args), false
+		return m.cmdSchedule(args), false, nil
 	case "model":
-		return m.cmdModel(), false
+		return m.cmdModel(), false, nil
 	case "skills":
-		return m.cmdSkills(), false
+		return m.cmdSkills(), false, nil
 	case "mcp":
-		return m.cmdMCP(), false
+		return m.cmdMCP(), false, nil
 	case "lsp":
-		return m.cmdLSP(), false
+		return m.cmdLSP(), false, nil
 	case "plugin":
-		return m.cmdPlugin(args), false
+		return m.cmdPlugin(args), false, nil
 	case "hooks":
-		return m.cmdHooks(), false
+		return m.cmdHooks(), false, nil
 	case "theme":
-		return m.cmdTheme(args), false
+		return m.cmdTheme(args), false, nil
 	case "reload":
-		return m.cmdReload(), false
+		return m.cmdReload(), false, nil
+	case "new":
+		return m.cmdNew(args)
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload", name), false
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new", name), false, nil
 	}
+}
+
+const newUsage = "usage: /new skill|agent|command [name]"
+
+// cmdNew activates the /new wizard for one of skill|agent|command. Returns
+// the prompt text for the first wizard step plus a fresh *creator.Wizard the
+// model installs to route subsequent text input through Advance.
+func (m *model) cmdNew(args string) (string, bool, *creator.Wizard) {
+	fields := tokenizeArgs(args)
+	if len(fields) == 0 {
+		return newUsage, false, nil
+	}
+	kind := strings.ToLower(fields[0])
+	var wk creator.WizardKind
+	switch kind {
+	case "skill":
+		wk = creator.WizardKindSkill
+	case "agent":
+		wk = creator.WizardKindAgent
+	case "command":
+		wk = creator.WizardKindCommand
+	default:
+		return fmt.Sprintf("unknown kind %q; %s", kind, newUsage), false, nil
+	}
+	name := ""
+	if len(fields) >= 2 {
+		name = fields[1]
+	}
+	w := &creator.Wizard{Kind: wk, Name: name}
+	if name == "" {
+		w.Step = creator.WizardStepName
+	} else {
+		w.Step = creator.WizardStepDescription
+	}
+	prompt := w.Prompt()
+	return fmt.Sprintf("/new %s: %s (use /cancel to abort)", kind, prompt), false, w
 }
 
 // cmdReload triggers the wired pluginBackend's Rebuild (which re-runs the
@@ -91,6 +140,10 @@ func (m model) renderHelpOverlay() string {
 	b.WriteString("  PgUp / PgDn      scroll viewport\n")
 	b.WriteString("\nbuilt-in commands:\n")
 	b.WriteString("  /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /quit\n")
+	b.WriteString("  /new skill|agent|command [name]   start the creator wizard\n")
+	b.WriteString("  /cancel                            cancel the active wizard\n")
+	b.WriteString("\nask in natural language; the agent calls these tools:\n")
+	b.WriteString("  create_skill   create_agent   create_command\n")
 	if len(m.userCommands) > 0 {
 		b.WriteString("\nuser + plugin commands:\n")
 		for _, c := range m.userCommands {

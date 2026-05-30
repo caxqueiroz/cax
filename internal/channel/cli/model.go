@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/creator"
 	"github.com/caxqueiroz/czcli/internal/hooks"
 	"github.com/caxqueiroz/czcli/internal/plugins"
 	"github.com/caxqueiroz/czcli/internal/theme"
@@ -39,6 +41,17 @@ type pluginBackend interface {
 	Disable(ctx context.Context, name string) error
 	Remove(ctx context.Context, name string) error
 	Rebuild(ctx context.Context) error
+}
+
+// creatorBackend is the surface the /new wizard drives. Implementations call
+// the shared Writer + Reloader pair (cmd/czcli wires the real one over the
+// same Writer + Reloader the create_* FuncTools use, so /new and
+// natural-language requests produce identical files). Nil-safe: when
+// unwired, the wizard's confirm step reports the missing backend.
+type creatorBackend interface {
+	CreateSkill(ctx context.Context, name, description, body string) (path string, err error)
+	CreateAgent(ctx context.Context, name, description string, tools []string, body string) (path string, err error)
+	CreateCommand(ctx context.Context, name, description, argumentHint, body string) (path string, err error)
 }
 
 // PluginListItem is the projection of plugins.PluginInfo the CLI renders. It
@@ -121,6 +134,12 @@ type model struct {
 
 	sched   scheduleBackend // optional; nil when the scheduler isn't wired
 	plugins pluginBackend   // optional; nil when /plugin is not wired
+	creator creatorBackend  // optional; nil when /new wizard finalize is not wired
+
+	// wizard holds an in-progress /new flow. Nil when no /new is active —
+	// existing tests that drive submit() with plain text keep passing because
+	// submit checks this pointer before routing through Advance.
+	wizard *creator.Wizard
 
 	// hookEntries is the typed snapshot of plugin-declared hooks the /hooks
 	// command renders. Populated via WithHookEntries on CLI start; nil when
@@ -146,7 +165,7 @@ type model struct {
 func newModel(width, height int) model {
 	ta := textarea.New()
 	ta.Prompt = "❯ "
-	ta.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /reload"
+	ta.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /reload /new"
 	ta.CharLimit = 4000
 	ta.ShowLineNumbers = false
 	// Disable Enter→newline so Enter falls through to model.Update's explicit
@@ -211,14 +230,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyCtrlL:
-			out, _ := m.handleCommand("/model")
+			out, _, _ := m.handleCommand("/model")
 			if out != "" {
 				m.history = append(m.history, historyEntry{who: "sys", text: out})
 				m.refreshViewport()
 			}
 			return m, nil
 		case tea.KeyCtrlR:
-			out, _ := m.handleCommand("/reload")
+			out, _, _ := m.handleCommand("/reload")
 			if out != "" {
 				m.history = append(m.history, historyEntry{who: "sys", text: out})
 				m.refreshViewport()
@@ -309,8 +328,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// submit handles Enter: slash-commands are dispatched locally; plain text is
-// echoed and a submitMsg is emitted so cli.go can run the turn.
+// submit handles Enter. The dispatch order is:
+//  1. slash commands run through handleCommand (which may install a wizard).
+//  2. when a wizard is active and the input is NOT a slash command, the line
+//     advances the wizard one step; on confirm the creator backend is invoked.
+//  3. otherwise the line is echoed and a submitMsg fires so cli.go runs the turn.
+//
+// Routing wizards before plain text means a /new flow never triggers a
+// streaming turn — required so users can type free-form descriptions without
+// the agent racing ahead.
 func (m model) submit() (tea.Model, tea.Cmd) {
 	line := strings.TrimSpace(m.input.Value())
 	m.input.Reset()
@@ -319,9 +345,12 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if strings.HasPrefix(line, "/") {
-		out, quit := m.handleCommand(line)
+		out, quit, wiz := m.handleCommand(line)
 		if quit {
 			return m, tea.Quit
+		}
+		if wiz != nil {
+			m.wizard = wiz
 		}
 		if out != "" {
 			m.history = append(m.history, historyEntry{who: "sys", text: out})
@@ -329,12 +358,62 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.wizard != nil {
+		return m.advanceWizard(line)
+	}
 	m.history = append(m.history, historyEntry{who: "you", text: line})
 	m.streaming = true
 	m.stream = ""
 	m.lastErr = ""
 	m.refreshViewport()
 	return m, tea.Batch(emitSubmit(line), m.spinner.Tick)
+}
+
+// advanceWizard pushes one line through the active wizard. On the confirm
+// step (transition to WizardStepDone) the model dispatches to the creator
+// backend and clears the wizard. The wizard line itself is echoed as a "you"
+// entry so the user has a transcript of what they answered.
+func (m model) advanceWizard(line string) (tea.Model, tea.Cmd) {
+	m.history = append(m.history, historyEntry{who: "you", text: line})
+	prompt := m.wizard.Advance(line)
+	if m.wizard.Step != creator.WizardStepDone {
+		m.history = append(m.history, historyEntry{who: "sys", text: prompt})
+		m.refreshViewport()
+		return m, nil
+	}
+	// Done: dispatch to the backend if confirmed; otherwise just clear.
+	w := m.wizard
+	m.wizard = nil
+	if !w.Confirmed() {
+		m.history = append(m.history, historyEntry{who: "sys", text: "/new: cancelled (declined at confirm)"})
+		m.refreshViewport()
+		return m, nil
+	}
+	if m.creator == nil {
+		m.history = append(m.history, historyEntry{who: "sys", text: "/new: creator backend not wired (cli.WithCreator not set)"})
+		m.refreshViewport()
+		return m, nil
+	}
+	ctx := context.Background()
+	var (
+		path string
+		err  error
+	)
+	switch w.Kind {
+	case creator.WizardKindSkill:
+		path, err = m.creator.CreateSkill(ctx, w.Name, w.Description, w.Body)
+	case creator.WizardKindAgent:
+		path, err = m.creator.CreateAgent(ctx, w.Name, w.Description, w.Tools, w.Body)
+	case creator.WizardKindCommand:
+		path, err = m.creator.CreateCommand(ctx, w.Name, w.Description, w.ArgumentHint, w.Body)
+	}
+	if err != nil {
+		m.history = append(m.history, historyEntry{who: "sys", text: fmt.Sprintf("/new failed: %v", err)})
+	} else {
+		m.history = append(m.history, historyEntry{who: "sys", text: fmt.Sprintf("wrote %s; agent reloaded", path)})
+	}
+	m.refreshViewport()
+	return m, nil
 }
 
 // resizeInput resizes the textarea to fit its current content (clamped to
