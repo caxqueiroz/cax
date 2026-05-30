@@ -95,3 +95,54 @@ func TestQuitCommand(t *testing.T) {
 		t.Errorf("/quit should return quit=true")
 	}
 }
+
+func TestCmdSkillsLists(t *testing.T) {
+	m := newModel(80, 24)
+	m.hasStatus = true
+	m.status = statusFixture()
+	m.status.SkillCount = 2
+	m.status.SkillNames = []string{"alpha", "beta"}
+	out, quit := m.handleCommand("/skills")
+	if quit {
+		t.Fatalf("/skills should not quit")
+	}
+	for _, want := range []string{"alpha", "beta", "2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("/skills out = %q, want substring %q", out, want)
+		}
+	}
+}
+
+func TestCmdSkillsEmpty(t *testing.T) {
+	m := newModel(80, 24)
+	m.hasStatus = true
+	m.status = statusFixture()
+	out, _ := m.handleCommand("/skills")
+	if !strings.Contains(out, "no skills") {
+		t.Errorf("/skills empty out = %q, want 'no skills...'", out)
+	}
+}
+
+func TestCmdMCPLists(t *testing.T) {
+	m := newModel(80, 24)
+	m.hasStatus = true
+	m.status = statusFixture()
+	m.status.MCPServerCount = 2
+	m.status.MCPServerNames = []string{"git", "github"}
+	out, _ := m.handleCommand("/mcp")
+	for _, want := range []string{"git", "github"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("/mcp out = %q, want substring %q", out, want)
+		}
+	}
+}
+
+func TestCmdMCPEmpty(t *testing.T) {
+	m := newModel(80, 24)
+	m.hasStatus = true
+	m.status = statusFixture()
+	out, _ := m.handleCommand("/mcp")
+	if !strings.Contains(out, "no mcp") {
+		t.Errorf("/mcp empty out = %q, want 'no mcp...'", out)
+	}
+}

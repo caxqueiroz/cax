@@ -39,8 +39,12 @@ func (m model) handleCommand(line string) (string, bool) {
 		return m.cmdSchedule(args), false
 	case "model":
 		return m.cmdModel(), false
+	case "skills":
+		return m.cmdSkills(), false
+	case "mcp":
+		return m.cmdMCP(), false
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model", name), false
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp", name), false
 	}
 }
 
@@ -272,6 +276,31 @@ func (m model) cmdModel() string {
 		return fmt.Sprintf("active: %s:%s (⚠ fallback #%d)", s.Provider, s.Model, s.FallbackIndex)
 	}
 	return fmt.Sprintf("active: %s:%s (✓ primary)", s.Provider, s.Model)
+}
+
+// cmdSkills renders the loaded skill catalog. Plan 7 will let plugins
+// contribute extra dirs; that flows in transparently through Status.
+func (m model) cmdSkills() string {
+	if !m.hasStatus {
+		return "skills unavailable (no status yet)"
+	}
+	s := m.status
+	if s.SkillCount == 0 {
+		return "no skills loaded (configure skills.dirs in config.yaml)"
+	}
+	return fmt.Sprintf("skills (%d): %s", s.SkillCount, strings.Join(s.SkillNames, ", "))
+}
+
+// cmdMCP renders the configured MCP servers and their connection state.
+func (m model) cmdMCP() string {
+	if !m.hasStatus {
+		return "mcp unavailable (no status yet)"
+	}
+	s := m.status
+	if s.MCPServerCount == 0 {
+		return "no mcp servers configured (add entries under mcp.servers in config.yaml)"
+	}
+	return fmt.Sprintf("mcp servers (%d): %s", s.MCPServerCount, strings.Join(s.MCPServerNames, ", "))
 }
 
 func pctOf(n, d int) int {

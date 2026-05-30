@@ -89,7 +89,7 @@ type model struct {
 func newModel(width, height int) model {
 	ti := textinput.New()
 	ti.Prompt = "> "
-	ti.Placeholder = "type a message, or /stats /tools /agents /schedule /model"
+	ti.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp"
 	ti.CharLimit = 4000
 
 	vp := viewport.New(width, max(1, height-6))
