@@ -180,9 +180,9 @@ memory: {db_path: /tmp/czcli/memory.db}
 }
 
 func TestLoadExampleConfig(t *testing.T) {
-	cfg, err := Load("../../config.example.yaml")
+	cfg, err := Load("example.yaml")
 	if err != nil {
-		t.Fatalf("Load(config.example.yaml): %v", err)
+		t.Fatalf("Load(example.yaml): %v", err)
 	}
 	if len(cfg.Providers) != 2 {
 		t.Fatalf("providers = %d, want 2", len(cfg.Providers))

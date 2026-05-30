@@ -39,13 +39,20 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	path := os.Getenv("CZCLI_CONFIG")
-	if path == "" {
-		path = "config.yaml"
+	path, isDefault := resolveConfigPath()
+	created, err := ensureDefaultConfig(path, isDefault)
+	if err != nil {
+		return err
+	}
+	if created {
+		fmt.Fprintf(os.Stderr,
+			"czcli: wrote a default config to %s\nedit it to set provider model IDs and API keys, then run czcli again\n",
+			path)
+		return nil
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
-		return fmt.Errorf("load config from %q (set CZCLI_CONFIG to override): %w", path, err)
+		return fmt.Errorf("load config from %q (override with $CZCLI_CONFIG or place one at ./.czcli/config.yaml): %w", path, err)
 	}
 
 	embedder, err := memory.NewEmbedder(cfg.Embeddings)
@@ -474,4 +481,47 @@ func (a pluginAdapter) Snapshot(ctx context.Context) (int, []string) {
 		}
 	}
 	return len(names), names
+}
+
+// resolveConfigPath determines which config file to load. Order:
+//  1. $CZCLI_CONFIG (literal path)
+//  2. ./.czcli/config.yaml (project-local)
+//  3. ~/.czcli/config.yaml (user default)
+//
+// The second return is true when the chosen path is the user default, which is
+// the only path eligible for first-run auto-create by ensureDefaultConfig.
+func resolveConfigPath() (path string, isDefault bool) {
+	if p := os.Getenv("CZCLI_CONFIG"); p != "" {
+		return p, false
+	}
+	local := filepath.Join(".czcli", "config.yaml")
+	if _, err := os.Stat(local); err == nil {
+		return local, false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// No HOME — fall back to the project-local path so the error message is sensible.
+		return local, false
+	}
+	return filepath.Join(home, ".czcli", "config.yaml"), true
+}
+
+// ensureDefaultConfig writes the embedded default config to path on first run.
+// It only fires for the user-default path (~/.czcli/config.yaml) and only when
+// the file doesn't already exist. Returns true if it created the file so the
+// caller can print a setup message and exit cleanly.
+func ensureDefaultConfig(path string, isDefault bool) (created bool, err error) {
+	if !isDefault {
+		return false, nil
+	}
+	if _, err := os.Stat(path); err == nil {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return false, fmt.Errorf("create config dir: %w", err)
+	}
+	if err := os.WriteFile(path, config.ExampleYAML, 0o600); err != nil {
+		return false, fmt.Errorf("write default config: %w", err)
+	}
+	return true, nil
 }
