@@ -1,4 +1,9 @@
-# czcli — Backlog
+# cax — Backlog
+
+> The project was renamed czcli → cax on 2026-05-30. The module path, binary,
+> config dir (`~/.cax/`), env vars (`CAX_*`), and TUI brand all reflect the new
+> name. Historical specs and plans under `docs/superpowers/` retain the old name
+> as a record of when they were written.
 
 Deferred features and known gaps. Each entry: why it matters, a rough sketch, and what it
 depends on. Order is rough priority — adjust as we learn.
@@ -7,7 +12,7 @@ depends on. Order is rough priority — adjust as we learn.
 
 - **Skills wiring** — dive's top-level `skill/` package wired via `AgentOptions.Extensions`.
 - **MCP servers (real)** — `internal/mcp` now uses dive's `experimental/mcp` with stdio + HTTP + file-backed OAuth `TokenStore`.
-- **Plugins (Claude-Code-compatible)** — `~/.czcli/plugins/*` discovery + `/plugin install <git-url>` + hot-reload via `agent.Rebuild`.
+- **Plugins (Claude-Code-compatible)** — `~/.cax/plugins/*` discovery + `/plugin install <git-url>` + hot-reload via `agent.Rebuild`.
 - **LSP** — `go.lsp.dev` client + 6 language-routed FuncTools (`lsp_definition`/`references`/`hover`/`document_symbols`/`workspace_symbols`/`diagnostics`).
 - **Hooks** — declarative shell hooks on `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`Stop` with JSON envelope + exit-code gate + SIGKILL timeout.
 - **Sub-agent personas** — dive v1.7 ships `GeneralPurpose`/`Explore`/`Plan` as built-ins; custom personas via `subagent.FileLoader` already supported.
@@ -19,7 +24,7 @@ depends on. Order is rough priority — adjust as we learn.
 **Why.** Claude Code's "Dynamic Workflows" lets the agent fan out work to many parallel
 sub-agents with adversarial verification and iteration to convergence
 ([announcement](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code)).
-czcli already has the primitives: `toolkit/orchestration`'s `Agent` tool supports background
+cax already has the primitives: `toolkit/orchestration`'s `Agent` tool supports background
 sub-agents, the TUI tracks running ones, and memory persists turns.
 
 **Scope — proposed MVP (subset 1+2+3):**
@@ -54,7 +59,7 @@ dive support).
 **Scope.** Add `internal/plugins/marketplace.go`: fetch + cache `marketplace.json`,
 implement `MarketplaceAdd`/`MarketplaceList`/`MarketplaceRemove`, and have
 `/plugin install <name>` first try the cached marketplaces before treating the arg as a
-git URL. State file `~/.czcli/marketplaces.json` (atomic write).
+git URL. State file `~/.cax/marketplaces.json` (atomic write).
 
 **Dependencies.** None.
 
