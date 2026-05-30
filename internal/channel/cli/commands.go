@@ -171,7 +171,7 @@ func (m model) cmdStats() string {
 	month := s.Usage.Month.InputTokens + s.Usage.Month.OutputTokens
 	var b strings.Builder
 	fmt.Fprintf(&b, "model:   %s:%s\n", s.Provider, s.Model)
-	fmt.Fprintf(&b, "history: hist %s/%s (%d%%) — in-memory turn budget; summarized above this\n", humanizeTokensTenths(s.ContextTokens), humanizeTokensTenths(s.ContextBudget), pctOf(s.ContextTokens, s.ContextBudget))
+	fmt.Fprintf(&b, "history: buffer %s/%s (%d%%) — in-memory turn budget; older turns summarized once this fills\n", humanizeTokensTenths(s.ContextTokens), humanizeTokensTenths(s.ContextBudget), pctOf(s.ContextTokens, s.ContextBudget))
 	fmt.Fprintf(&b, "tokens:  1d %s · 1w %s · 1m %s\n", humanizeTokens(day), humanizeTokens(week), humanizeTokens(month))
 	fmt.Fprintf(&b, "memory:  mem %s · %d messages · %d vectors\n", humanizeBytes(s.MemSizeBytes), s.MessageCount, s.MemoryCount)
 	fmt.Fprintf(&b, "tools:   %d · subagents %d", len(s.ToolNames), len(s.SubagentNames))
