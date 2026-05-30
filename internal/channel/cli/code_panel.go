@@ -99,13 +99,16 @@ func resolveCodeViewer() (string, []string) {
 
 // teaExecProcess builds a tea.Cmd that suspends the TUI, runs the chosen
 // viewer over the scratch file, then resumes the TUI and appends a sys
-// notice describing what happened.
+// notice describing what happened. The completion callback returns an
+// execDoneMsg (not a plain sysHistoryMsg) so the Update handler also
+// re-enables alt-screen + mouse-cell-motion — tea.ExecProcess by itself
+// doesn't reliably restore those terminal modes on resume.
 func teaExecProcess(bin string, args []string, label, path string) tea.Cmd {
 	c := exec.Command(bin, args...)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
-			return sysHistoryMsg{text: fmt.Sprintf("✗ viewer failed (%s): %v", bin, err)}
+			return execDoneMsg{notice: fmt.Sprintf("✗ viewer failed (%s): %v", bin, err)}
 		}
-		return sysHistoryMsg{text: fmt.Sprintf("📄 opened %s in %s · saved to %s", label, bin, path)}
+		return execDoneMsg{notice: fmt.Sprintf("📄 opened %s in %s · saved to %s", label, bin, path)}
 	})
 }

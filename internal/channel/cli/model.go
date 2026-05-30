@@ -120,9 +120,16 @@ type submitMsg struct{ line string }
 // snapshot out of band; the pure model treats it as a no-op.
 type statusRequestMsg struct{}
 
-// sysHistoryMsg appends a one-line sys notice to the conversation. Used by
-// the /code viewer-exit callback so the transcript records what was opened.
+// sysHistoryMsg appends a one-line sys notice to the conversation.
 type sysHistoryMsg struct{ text string }
+
+// execDoneMsg is posted by the /code (and any future) external-program
+// callback when the suspended process exits. The Update handler appends the
+// optional sys notice AND re-enables alt-screen + mouse-cell-motion, because
+// tea.ExecProcess doesn't always restore those terminal modes on resume —
+// without this the in-app viewport stops capturing the scroll wheel and the
+// user scrolls the terminal's underlying scrollback instead.
+type execDoneMsg struct{ notice string }
 
 // model is the bubbletea model for the CLI channel.
 type model struct {
@@ -451,11 +458,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sysHistoryMsg:
-		// Posted from external-program exit callbacks (/code etc.) so the
-		// transcript records what was opened.
+		// Posted from in-process notices (e.g. summarisation events).
 		m.history = append(m.history, historyEntry{who: "sys", text: msg.text})
 		m.refreshViewport()
 		return m, nil
+
+	case execDoneMsg:
+		// External program (pager/editor from /code) just exited. Re-enable
+		// alt-screen + mouse-cell-motion so the in-app viewport captures the
+		// scroll wheel again — otherwise the wheel falls through to the
+		// terminal's scrollback and the user sees the pre-cax shell history.
+		if msg.notice != "" {
+			m.history = append(m.history, historyEntry{who: "sys", text: msg.notice})
+			m.refreshViewport()
+		}
+		return m, tea.Batch(tea.EnterAltScreen, tea.EnableMouseCellMotion)
 
 	case spinner.TickMsg:
 		// Animate while waiting for the assistant's reply; stop once streaming ends.
