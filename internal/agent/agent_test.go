@@ -38,9 +38,9 @@ type fakeMCPTool struct {
 	name string
 }
 
-func (t *fakeMCPTool) Name() string                  { return t.name }
-func (t *fakeMCPTool) Description() string           { return "fake mcp tool" }
-func (t *fakeMCPTool) Schema() *dive.Schema          { return &dive.Schema{Type: "object"} }
+func (t *fakeMCPTool) Name() string         { return t.name }
+func (t *fakeMCPTool) Description() string  { return "fake mcp tool" }
+func (t *fakeMCPTool) Schema() *dive.Schema { return &dive.Schema{Type: "object"} }
 func (t *fakeMCPTool) Annotations() *dive.ToolAnnotations {
 	return nil
 }

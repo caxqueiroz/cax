@@ -1,0 +1,118 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  BIN: bin/czcli
+  PKG: ./...
+  CMD: ./cmd/czcli
+  COVERAGE_FILE: coverage.out
+  COVERAGE_HTML: coverage.html
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list-all
+    silent: true
+
+  build:
+    desc: Build all packages (no binary output)
+    cmds:
+      - go build {{.PKG}}
+
+  build:bin:
+    desc: Build the czcli binary into ./bin/czcli
+    cmds:
+      - mkdir -p bin
+      - go build -o {{.BIN}} {{.CMD}}
+
+  run:
+    desc: 'Run czcli (pass args after --: task run -- --flag)'
+    cmds:
+      - go run {{.CMD}} {{.CLI_ARGS}}
+
+  install:
+    desc: Install czcli into $GOBIN / $GOPATH/bin
+    cmds:
+      - go install {{.CMD}}
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test -count=1 {{.PKG}}
+
+  test:race:
+    desc: Run all tests with the race detector
+    cmds:
+      - go test -count=1 -race {{.PKG}}
+
+  test:cov:
+    desc: Run tests with coverage and open the HTML report
+    cmds:
+      - go test -count=1 -coverprofile={{.COVERAGE_FILE}} {{.PKG}}
+      - go tool cover -html={{.COVERAGE_FILE}} -o {{.COVERAGE_HTML}}
+      - 'echo "coverage report: {{.COVERAGE_HTML}}"'
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run {{.PKG}}
+
+  lint:fix:
+    desc: Run golangci-lint with --fix
+    cmds:
+      - golangci-lint run --fix {{.PKG}}
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet {{.PKG}}
+
+  fmt:
+    desc: Format Go sources (gofmt -s -w)
+    cmds:
+      - gofmt -s -w .
+
+  fmt:check:
+    desc: Fail if any Go source needs formatting
+    cmds:
+      - |
+        diff="$(gofmt -s -l . 2>/dev/null)"
+        if [ -n "$diff" ]; then
+          echo "the following files need gofmt -s:"
+          echo "$diff"
+          exit 1
+        fi
+    silent: true
+
+  tidy:
+    desc: Run go mod tidy
+    cmds:
+      - go mod tidy
+
+  tidy:check:
+    desc: Fail if go.mod / go.sum are not tidy
+    cmds:
+      - |
+        go mod tidy
+        if ! git diff --quiet -- go.mod go.sum; then
+          echo "go.mod / go.sum need 'task tidy'"
+          git --no-pager diff -- go.mod go.sum
+          exit 1
+        fi
+    silent: true
+
+  verify:
+    desc: CI-equivalent gate (fmt:check + vet + lint + tidy:check + test)
+    cmds:
+      - task: fmt:check
+      - task: vet
+      - task: lint
+      - task: tidy:check
+      - task: test
+
+  clean:
+    desc: Remove built binaries and coverage artifacts
+    cmds:
+      - rm -rf bin
+      - rm -f {{.COVERAGE_FILE}} {{.COVERAGE_HTML}}

@@ -1,8 +1,9 @@
-# Binaries
+# Binaries / coverage
 /bin/
 *.exe
 *.test
 *.out
+coverage.html
 
 # Local config / secrets
 .env
