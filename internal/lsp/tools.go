@@ -45,9 +45,6 @@ type queryArgs struct {
 	Query string `json:"query" description:"Symbol query string."`
 }
 
-// noopArgs is the catch-all input used by placeholder tools.
-type noopArgs struct{}
-
 // noServerMessage explains to the model why a tool returned no LSP data so it
 // can adapt (try a different tool, or proceed without LSP context).
 func noServerMessage(file, lang string) string {
@@ -324,12 +321,55 @@ func formatSymbolInformation(syms []protocol.SymbolInformation) string {
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
-func (m *Manager) diagnosticsTool() dive.Tool { return placeholderTool("lsp_diagnostics") }
-
-func placeholderTool(name string) dive.Tool {
-	return dive.FuncTool(name, "placeholder; implemented in a follow-up task.",
-		func(_ context.Context, _ *noopArgs) (*dive.ToolResult, error) {
-			return dive.NewToolResultText(name + ": not yet implemented"), nil
+func (m *Manager) diagnosticsTool() dive.Tool {
+	return dive.FuncTool("lsp_diagnostics",
+		"Return the most recent diagnostics published by the language server for a file.",
+		func(ctx context.Context, args *fileArgs) (*dive.ToolResult, error) {
+			s, lang, ok := m.routeServer(args.File)
+			if !ok {
+				return dive.NewToolResultText(noServerMessage(args.File, lang)), nil
+			}
+			rctx, cancel := context.WithTimeout(ctx, requestTimeout)
+			defer cancel()
+			// ensureOpen triggers the server to push diagnostics if it hasn't already.
+			if err := m.ensureOpen(rctx, s, args.File); err != nil {
+				return dive.NewToolResultText(fmt.Sprintf("lsp_diagnostics: open: %v", err)), nil
+			}
+			u := string(uri.File(args.File))
+			s.mu.Lock()
+			diags := s.diagnostics[u]
+			s.mu.Unlock()
+			return dive.NewToolResultText(formatDiagnostics(args.File, diags)), nil
 		},
 	)
+}
+
+func formatDiagnostics(file string, diags []protocol.Diagnostic) string {
+	if len(diags) == 0 {
+		return fmt.Sprintf("diagnostics for %s: none", file)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "diagnostics for %s (%d):\n", file, len(diags))
+	for _, d := range diags {
+		fmt.Fprintf(&b, "  [%s] %d:%d-%d:%d %s\n",
+			diagnosticSeverityString(d.Severity),
+			d.Range.Start.Line, d.Range.Start.Character,
+			d.Range.End.Line, d.Range.End.Character,
+			d.Message)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func diagnosticSeverityString(s protocol.DiagnosticSeverity) string {
+	switch s {
+	case protocol.DiagnosticSeverityError:
+		return "error"
+	case protocol.DiagnosticSeverityWarning:
+		return "warning"
+	case protocol.DiagnosticSeverityInformation:
+		return "info"
+	case protocol.DiagnosticSeverityHint:
+		return "hint"
+	}
+	return "unknown"
 }

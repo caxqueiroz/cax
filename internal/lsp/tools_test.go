@@ -193,6 +193,80 @@ func TestLSPWorkspaceSymbols(t *testing.T) {
 	}
 }
 
+func TestLSPDiagnosticsCachedFromNotification(t *testing.T) {
+	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+		switch req.Method() {
+		case protocol.MethodInitialize:
+			return reply(ctx, &protocol.InitializeResult{}, nil)
+		case protocol.MethodInitialized, protocol.MethodTextDocumentDidOpen:
+			return reply(ctx, nil, nil)
+		}
+		return reply(ctx, nil, nil)
+	}
+	fs := newFakeServer(t, handler)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(file, []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{
+		rootDir: dir,
+		servers: map[string]*server{},
+		dialFn: func(_ context.Context, _ config.LSPServerConfig) (jsonrpc2.Conn, func() error, error) {
+			return fs.clientConn, func() error { return nil }, nil
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := m.bringUp(ctx, []config.LSPServerConfig{{
+		Name: "fakegopls", Command: "/x", Languages: []string{"go"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// Make the file known to the manager via ensureOpen first, so the URI used
+	// in the publishDiagnostics matches the URI the tool will look up.
+	s := m.servers["go"]
+	if err := m.ensureOpen(ctx, s, file); err != nil {
+		t.Fatal(err)
+	}
+
+	// Push a publishDiagnostics notification from the fake server side. The
+	// manager's notification handler caches it under server.diagnostics.
+	diags := []protocol.Diagnostic{{
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 2, Character: 0},
+			End:   protocol.Position{Line: 2, Character: 5},
+		},
+		Severity: protocol.DiagnosticSeverityError,
+		Message:  "undeclared name: fmt",
+	}}
+	if err := fs.serverConn.Notify(ctx, protocol.MethodTextDocumentPublishDiagnostics, &protocol.PublishDiagnosticsParams{
+		URI:         uri.File(file),
+		Diagnostics: diags,
+	}); err != nil {
+		t.Fatalf("server Notify: %v", err)
+	}
+	// net.Pipe is synchronous but the handler runs on the manager's read
+	// goroutine; poll briefly until the cache is populated.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		s.mu.Lock()
+		got := len(s.diagnostics[string(uri.File(file))])
+		s.mu.Unlock()
+		if got > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	tool := toolByName(m.Tools(), "lsp_diagnostics")
+	res := callTool(t, tool, map[string]any{"file": file})
+	text := resultText(res)
+	if !strings.Contains(text, "undeclared name: fmt") {
+		t.Fatalf("diagnostics text missing message: %q", text)
+	}
+}
+
 func TestLSPDefinition(t *testing.T) {
 	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		switch req.Method() {
