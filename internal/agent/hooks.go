@@ -66,11 +66,29 @@ func (d *hookDeps) preGeneration(ctx context.Context, hctx *dive.HookContext) er
 
 	var blocks []llm.Content
 
-	summary, _, err := d.store.LoadWindow(ctx, sid, budget)
+	summary, recent, err := d.store.LoadWindow(ctx, sid, budget)
 	if err != nil {
 		slog.Warn("loadWindow failed", "err", err, "session_id", sid)
-	} else if strings.TrimSpace(summary) != "" {
+	}
+	if strings.TrimSpace(summary) != "" {
 		blocks = append(blocks, llm.NewTextContent("Conversation summary so far:\n"+summary))
+	}
+	// Inject the recent uncovered turns so the agent sees the conversation
+	// it just left off on after a restart — previously these were discarded
+	// and the LLM had no idea where the user "left off" unless the question
+	// happened to semantically match a memory vector. The current turn's
+	// user message has not been persisted yet (PostGeneration writes it),
+	// so this only contains prior turns.
+	if len(recent) > 0 {
+		var sb strings.Builder
+		sb.WriteString("Recent conversation (most recent last):\n")
+		for _, m := range recent {
+			sb.WriteString(string(m.Role))
+			sb.WriteString(": ")
+			sb.WriteString(strings.TrimSpace(m.Content))
+			sb.WriteByte('\n')
+		}
+		blocks = append(blocks, llm.NewTextContent(sb.String()))
 	}
 
 	query := lastUserText(hctx.Messages)
