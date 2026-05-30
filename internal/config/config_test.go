@@ -194,3 +194,59 @@ func TestLoadExampleConfig(t *testing.T) {
 		t.Fatalf("memory defaults wrong: %+v", cfg.Memory)
 	}
 }
+
+func TestLoadPluginsDefaultsAndTildeExpansion(t *testing.T) {
+	path := writeYAML(t, `
+providers:
+  - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
+embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
+memory: {db_path: /tmp/x.db}
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Plugins.Enabled {
+		t.Fatalf("Plugins.Enabled default = false, want true")
+	}
+	if len(cfg.Plugins.Dirs) != 2 {
+		t.Fatalf("Plugins.Dirs len = %d, want 2 (%v)", len(cfg.Plugins.Dirs), cfg.Plugins.Dirs)
+	}
+	home, _ := os.UserHomeDir()
+	wantUser := filepath.Join(home, ".czcli", "plugins")
+	if cfg.Plugins.Dirs[0] != wantUser {
+		t.Errorf("Plugins.Dirs[0] = %q, want %q", cfg.Plugins.Dirs[0], wantUser)
+	}
+	if !strings.HasSuffix(cfg.Plugins.Dirs[1], ".czcli/plugins") {
+		t.Errorf("Plugins.Dirs[1] = %q, want suffix .czcli/plugins", cfg.Plugins.Dirs[1])
+	}
+}
+
+func TestLoadPluginsOverride(t *testing.T) {
+	path := writeYAML(t, `
+providers:
+  - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
+embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
+memory: {db_path: /tmp/x.db}
+plugins:
+  enabled: false
+  dirs: [~/my-plugins, ./pkg/plugins]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Plugins.Enabled {
+		t.Errorf("Plugins.Enabled = true, want false (override)")
+	}
+	if len(cfg.Plugins.Dirs) != 2 {
+		t.Fatalf("Plugins.Dirs len = %d, want 2", len(cfg.Plugins.Dirs))
+	}
+	home, _ := os.UserHomeDir()
+	if cfg.Plugins.Dirs[0] != filepath.Join(home, "my-plugins") {
+		t.Errorf("Plugins.Dirs[0] = %q, want home-expanded", cfg.Plugins.Dirs[0])
+	}
+	if cfg.Plugins.Dirs[1] != "./pkg/plugins" {
+		t.Errorf("Plugins.Dirs[1] = %q, want unchanged", cfg.Plugins.Dirs[1])
+	}
+}

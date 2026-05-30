@@ -65,4 +65,15 @@ skills:
     - .dive/skills
     - ~/.dive/skills
 
+# Plugins (Claude Code-compatible bundles dropped into ~/.czcli/plugins/<name>
+# or .czcli/plugins/<name>). Each plugin may contribute skills, agents, MCP
+# servers, LSP servers, hooks, and slash commands. State (enable/disable) is
+# tracked at ~/.czcli/plugins.json. Manage with /plugin (list|install|enable|
+# disable|remove).
+plugins:
+  enabled: true
+  dirs:
+    - ~/.czcli/plugins
+    - .czcli/plugins
+
 schedules: []

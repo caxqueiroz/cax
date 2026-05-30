@@ -20,6 +20,7 @@ type Config struct {
 	Subagents  SubagentsConfig  `yaml:"subagents"`
 	MCP        MCPConfig        `yaml:"mcp"`
 	Skills     SkillsConfig     `yaml:"skills"`
+	Plugins    PluginsConfig    `yaml:"plugins"`
 	Schedules  []ScheduleConfig `yaml:"schedules"`
 }
 
@@ -85,6 +86,24 @@ type SkillsConfig struct {
 	Dirs    []string `yaml:"dirs"` // defaults: [".dive/skills", "~/.dive/skills"]
 }
 
+// PluginsConfig configures Claude Code-compatible plugin discovery.
+// Defaults: enabled, dirs=[~/.czcli/plugins, .czcli/plugins]. ~/ is expanded.
+type PluginsConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Dirs    []string `yaml:"dirs"`
+}
+
+// LSPServerConfig configures a Language Server Protocol server. Stubbed by
+// Plan 7 so plugins.Contributions.LSPServers has a type; Plan 8 owns the
+// runtime and may extend this type additively.
+type LSPServerConfig struct {
+	Name         string   `yaml:"name"`
+	Command      string   `yaml:"command"`
+	Args         []string `yaml:"args"`
+	Languages    []string `yaml:"languages"`
+	RootPatterns []string `yaml:"root_patterns"`
+}
+
 // ScheduleConfig defines a cron-scheduled prompt.
 type ScheduleConfig struct {
 	Name    string `yaml:"name"`
@@ -111,6 +130,13 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("expand db_path: %w", err)
 	}
 	cfg.Memory.DBPath = expanded
+	for i, d := range cfg.Plugins.Dirs {
+		ed, err := expandHome(d)
+		if err != nil {
+			return nil, fmt.Errorf("expand plugins.dirs[%d]: %w", i, err)
+		}
+		cfg.Plugins.Dirs[i] = ed
+	}
 	if err := validate(&cfg); err != nil {
 		return nil, err
 	}
@@ -133,6 +159,19 @@ func applyDefaults(cfg *Config) {
 		}
 	}
 	applySkillDefaults(&cfg.Skills)
+	applyPluginDefaults(&cfg.Plugins)
+}
+
+// applyPluginDefaults mirrors applySkillDefaults: full omission of the
+// `plugins:` block enables discovery in the two default roots. Explicit
+// `enabled: false` or explicit `dirs:` are honored verbatim.
+func applyPluginDefaults(p *PluginsConfig) {
+	if !p.Enabled && len(p.Dirs) == 0 {
+		p.Enabled = true
+	}
+	if len(p.Dirs) == 0 {
+		p.Dirs = []string{"~/.czcli/plugins", ".czcli/plugins"}
+	}
 }
 
 // applySkillDefaults expands "~" entries and falls back to the two default
