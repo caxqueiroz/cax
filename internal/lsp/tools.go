@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -127,7 +128,48 @@ func (m *Manager) referencesTool() dive.Tool {
 }
 
 // Placeholders for the remaining tools; real bodies arrive in Tasks 7-10.
-func (m *Manager) hoverTool() dive.Tool           { return placeholderTool("lsp_hover") }
+func (m *Manager) hoverTool() dive.Tool {
+	return dive.FuncTool("lsp_hover",
+		"Show hover documentation for the symbol at file:line:character.",
+		func(ctx context.Context, args *positionArgs) (*dive.ToolResult, error) {
+			s, lang, ok := m.routeServer(args.File)
+			if !ok {
+				return dive.NewToolResultText(noServerMessage(args.File, lang)), nil
+			}
+			rctx, cancel := context.WithTimeout(ctx, requestTimeout)
+			defer cancel()
+			if err := m.ensureOpen(rctx, s, args.File); err != nil {
+				return dive.NewToolResultText(fmt.Sprintf("lsp_hover: open: %v", err)), nil
+			}
+			var raw json.RawMessage
+			if _, err := s.conn.Call(rctx, protocol.MethodTextDocumentHover, &protocol.HoverParams{
+				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+					TextDocument: protocol.TextDocumentIdentifier{URI: uri.File(args.File)},
+					Position:     protocol.Position{Line: args.Line, Character: args.Character},
+				},
+			}, &raw); err != nil {
+				return dive.NewToolResultText(fmt.Sprintf("lsp_hover: call: %v", err)), nil
+			}
+			return dive.NewToolResultText(formatHover(raw)), nil
+		},
+	)
+}
+
+// formatHover renders the LSP Hover result. In go.lsp.dev/protocol v0.12.0
+// Hover.Contents is typed as MarkupContent (not a union), so we decode through
+// json.RawMessage to tolerate alternate server shapes and fall back to the raw
+// payload as a last resort.
+func formatHover(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "hover: no documentation"
+	}
+	var h protocol.Hover
+	if err := json.Unmarshal(raw, &h); err == nil && h.Contents.Value != "" {
+		return "hover:\n" + h.Contents.Value
+	}
+	return "hover: " + string(raw)
+}
+
 func (m *Manager) documentSymbolsTool() dive.Tool { return placeholderTool("lsp_document_symbols") }
 func (m *Manager) workspaceSymbolsTool() dive.Tool {
 	return placeholderTool("lsp_workspace_symbols")

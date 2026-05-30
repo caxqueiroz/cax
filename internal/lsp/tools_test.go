@@ -110,6 +110,31 @@ func TestLSPReferences(t *testing.T) {
 	}
 }
 
+func TestLSPHover(t *testing.T) {
+	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+		switch req.Method() {
+		case protocol.MethodInitialize:
+			return reply(ctx, &protocol.InitializeResult{}, nil)
+		case protocol.MethodInitialized, protocol.MethodTextDocumentDidOpen:
+			return reply(ctx, nil, nil)
+		case protocol.MethodTextDocumentHover:
+			h := protocol.Hover{Contents: protocol.MarkupContent{
+				Kind:  protocol.Markdown,
+				Value: "func main()\n\nentry point",
+			}}
+			return reply(ctx, h, nil)
+		}
+		return reply(ctx, nil, nil)
+	}
+	m, file := setupManagerWithFake(t, handler)
+	tool := toolByName(m.Tools(), "lsp_hover")
+	res := callTool(t, tool, map[string]any{"file": file, "line": 0, "character": 0})
+	text := resultText(res)
+	if !strings.Contains(text, "entry point") {
+		t.Fatalf("hover text missing body: %q", text)
+	}
+}
+
 func TestLSPDefinition(t *testing.T) {
 	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		switch req.Method() {
