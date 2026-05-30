@@ -22,6 +22,13 @@ var (
 	youStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
 	sysStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true)
 	sepStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+	// Bottom status bar: dark band, bold throughout, distinct colors per piece.
+	bottomBarBg   = lipgloss.NewStyle().Background(lipgloss.Color("236")).Foreground(lipgloss.Color("252")).Bold(true).Padding(0, 1)
+	bottomLabel   = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Background(lipgloss.Color("236")).Bold(true)
+	bottomValue   = lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Background(lipgloss.Color("236")).Bold(true)
+	bottomAccent  = lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Background(lipgloss.Color("236")).Bold(true)
+	bottomDivider = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("236")).Bold(true)
 )
 
 // renderTopBar: "claude-opus ✓ │ ctx 6.1k/8k ▓▓▓░ 76% ⚠".
@@ -79,45 +86,56 @@ func (m model) renderGauge(tokens, budget int) string {
 	)
 }
 
-// renderBottomBar: "tok 1d124k 1w812k 1m3.2M·mem18MB·🔧8 🤖3 · 📜N · 🔌M · 🧩P · 🧠L".
-// Extra counters (skills 📜, MCP 🔌, plugins 🧩, LSP 🧠) appear only when
-// non-zero so the bottom bar stays clean for users who don't use them.
+// renderBottomBar renders the dashboard band: dark background, bold throughout,
+// labels in dim, window markers (1d/1w/1m) in cyan, values in bright white,
+// dividers between groups. Extra counters (skills 📜, MCP 🔌, plugins 🧩,
+// LSP 🧠, hooks ⚓) appear only when non-zero so the bar stays uncluttered.
 func (m model) renderBottomBar() string {
 	if !m.hasStatus {
-		return barStyle.Width(m.width).Render("")
+		return bottomBarBg.Width(m.width).Render("")
 	}
 	s := m.status
 	day := s.Usage.Day.InputTokens + s.Usage.Day.OutputTokens
 	week := s.Usage.Week.InputTokens + s.Usage.Week.OutputTokens
 	month := s.Usage.Month.InputTokens + s.Usage.Month.OutputTokens
 
-	var extras strings.Builder
-	if s.SkillCount > 0 {
-		fmt.Fprintf(&extras, " · 📜%d", s.SkillCount)
+	div := bottomDivider.Render("  │  ")
+	kv := func(lbl, val string) string {
+		return bottomAccent.Render(lbl) + bottomBarBg.Render(" ") + bottomValue.Render(val)
 	}
-	if s.MCPServerCount > 0 {
-		fmt.Fprintf(&extras, " · 🔌%d", s.MCPServerCount)
+	tagged := func(lbl, val string) string {
+		return bottomLabel.Render(lbl) + bottomBarBg.Render(" ") + bottomValue.Render(val)
 	}
-	if s.PluginCount > 0 {
-		fmt.Fprintf(&extras, " · 🧩%d", s.PluginCount)
-	}
-	if s.LSPServerCount > 0 {
-		fmt.Fprintf(&extras, " · 🧠%d", s.LSPServerCount)
-	}
-	if s.HookCount > 0 {
-		fmt.Fprintf(&extras, " · ⚓%d", s.HookCount)
+	emo := func(icon string, n int) string {
+		return bottomBarBg.Render(icon+" ") + bottomValue.Render(fmt.Sprintf("%d", n))
 	}
 
-	line := fmt.Sprintf("tok 1d%s 1w%s 1m%s·mem%s·🔧%d 🤖%d%s",
-		humanizeTokens(day),
-		humanizeTokens(week),
-		humanizeTokens(month),
-		humanizeBytes(s.MemSizeBytes),
-		len(s.ToolNames),
-		len(s.SubagentNames),
-		extras.String(),
+	var parts []string
+	parts = append(parts,
+		bottomLabel.Render("tok"),
+		kv("1d", humanizeTokens(day)),
+		kv("1w", humanizeTokens(week)),
+		kv("1m", humanizeTokens(month)),
 	)
-	return dimStyle.Width(m.width).Render(line)
+	tokGroup := strings.Join(parts, bottomBarBg.Render("  "))
+
+	mem := tagged("mem", humanizeBytes(s.MemSizeBytes))
+	tools := emo("🔧", len(s.ToolNames)) + bottomBarBg.Render("  ") + emo("🤖", len(s.SubagentNames))
+
+	extras := ""
+	add := func(icon string, n int) {
+		if n > 0 {
+			extras += div + emo(icon, n)
+		}
+	}
+	add("📜", s.SkillCount)
+	add("🔌", s.MCPServerCount)
+	add("🧩", s.PluginCount)
+	add("🧠", s.LSPServerCount)
+	add("⚓", s.HookCount)
+
+	line := tokGroup + div + mem + div + tools + extras
+	return bottomBarBg.Width(m.width).Render(line)
 }
 
 // renderConversation builds the body string fed to the viewport. All entries
@@ -136,7 +154,9 @@ func (m model) renderConversation() string {
 	for _, h := range m.history {
 		b.WriteString(wrap.Render(renderEntry(h)))
 		b.WriteByte('\n')
-		if h.who == "bot" {
+		// One blank line after every user/assistant entry gives even
+		// breathing room around each turn (user→reply and reply→next user).
+		if h.who == "you" || h.who == "bot" {
 			b.WriteByte('\n')
 		}
 	}
@@ -176,6 +196,13 @@ func (m *model) refreshViewport() {
 
 func (m model) View() string {
 	sep := sepStyle.Render(strings.Repeat("─", m.width))
+	// Input region: a blank line of padding above gives the textinput
+	// breathing room instead of jamming it against the separator.
+	inputBlock := lipgloss.JoinVertical(
+		lipgloss.Left,
+		"",
+		m.input.View(),
+	)
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.renderTopBar(),
@@ -184,7 +211,7 @@ func (m model) View() string {
 		sep,
 		m.renderBottomBar(),
 		sep,
-		m.input.View(),
+		inputBlock,
 	)
 }
 

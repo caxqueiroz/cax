@@ -165,7 +165,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.viewport.Width = msg.Width
-		m.viewport.Height = max(1, msg.Height-6)
+		// Layout: top(1)+sep(1)+viewport+sep(1)+bottom(1)+sep(1)+pad(1)+input(1) = 7+viewport.
+		m.viewport.Height = max(1, msg.Height-7)
 		m.input.Width = max(1, msg.Width-2)
 		m.ready = true
 		m.refreshViewport()
