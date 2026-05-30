@@ -497,7 +497,9 @@ const defaultInstructions = `Rules:
 1. When asked to do something, use the tools (Write, Edit, Bash, Glob, Grep, WebFetch, search_memory, Agent for sub-agents). Do not just print the code you would write.
 2. Be brief. No preamble like "I'll do X then Y". Just do it and report what you did in one or two sentences.
 3. Do not re-print tool output the user already saw via the tool. Reference paths instead.
-4. Wrap pre-formatted text in fenced code blocks only when you actually need to show it.`
+4. Wrap pre-formatted text in fenced code blocks only when you actually need to show it.
+5. If a tool fails or output shows an error (compile error, test failure, lint warning, non-zero exit code, missing file), READ the error, fix the cause yourself with Edit/Write, and retry. Do not ask the user to fix code you wrote. Only escalate when you've genuinely run out of moves: missing credentials, missing tools, ambiguous design choices, or the same failure after 3+ self-fix attempts.
+6. Before reporting a task "done", verify it works. Created Go code? Run "go build ./..." (or "task build"). Created Python? Run it or its tests. Created a script? Execute it. "Done" means the artifact behaves as asked.`
 
 // composeSystemPrompt prepends the user's persona to the built-in default
 // instructions. If the persona is empty, falls back to a neutral default.
