@@ -19,6 +19,7 @@ type Config struct {
 	Tools      ToolsConfig      `yaml:"tools"`
 	Subagents  SubagentsConfig  `yaml:"subagents"`
 	MCP        MCPConfig        `yaml:"mcp"`
+	Skills     SkillsConfig     `yaml:"skills"`
 	Schedules  []ScheduleConfig `yaml:"schedules"`
 }
 
@@ -70,10 +71,18 @@ type MCPConfig struct {
 
 // MCPServerConfig configures one MCP server (stdio or URL).
 type MCPServerConfig struct {
-	Name    string   `yaml:"name"`
-	Command string   `yaml:"command"`
-	Args    []string `yaml:"args"`
-	URL     string   `yaml:"url"`
+	Name    string            `yaml:"name"`
+	Command string            `yaml:"command"`
+	Args    []string          `yaml:"args"`
+	URL     string            `yaml:"url"`
+	Env     map[string]string `yaml:"env,omitempty"`     // stdio env vars; also lets plugin .mcp.json env pass through
+	Headers map[string]string `yaml:"headers,omitempty"` // HTTP headers; also lets plugin .mcp.json headers pass through
+}
+
+// SkillsConfig configures dive's skill loader.
+type SkillsConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Dirs    []string `yaml:"dirs"` // defaults: [".dive/skills", "~/.dive/skills"]
 }
 
 // ScheduleConfig defines a cron-scheduled prompt.
@@ -123,6 +132,31 @@ func applyDefaults(cfg *Config) {
 			cfg.Providers[i].MaxTokens = 4096
 		}
 	}
+	applySkillDefaults(&cfg.Skills)
+}
+
+// applySkillDefaults expands "~" entries and falls back to the two default
+// directories when none are configured. Skills are enabled by default; set
+// skills.enabled: false in YAML to opt out.
+func applySkillDefaults(s *SkillsConfig) {
+	if !s.Enabled && len(s.Dirs) == 0 {
+		// Distinguish "field omitted" from "user set enabled: false".
+		// YAML default for bool is false; we treat omission (no dirs either)
+		// as enabled.
+		s.Enabled = true
+	}
+	if len(s.Dirs) == 0 {
+		s.Dirs = []string{".dive/skills", "~/.dive/skills"}
+	}
+	expanded := make([]string, 0, len(s.Dirs))
+	for _, d := range s.Dirs {
+		e, err := expandHome(d)
+		if err != nil || e == "" {
+			continue
+		}
+		expanded = append(expanded, e)
+	}
+	s.Dirs = expanded
 }
 
 // expandHome replaces a leading "~" with the user's home directory.

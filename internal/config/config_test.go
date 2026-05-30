@@ -150,6 +150,35 @@ memory: {db_path: /tmp/czcli/memory.db}
 	}
 }
 
+func TestLoadAppliesSkillsDefaults(t *testing.T) {
+	path := writeYAML(t, `
+providers:
+  - {name: openai, model: gpt-5.4, api_key_env: OPENAI_API_KEY}
+embeddings: {provider: openai, model: text-embedding-3-small, dim: 1536, api_key_env: OPENAI_API_KEY}
+memory: {db_path: /tmp/czcli/memory.db}
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Skills.Enabled {
+		t.Errorf("Skills.Enabled default = false, want true")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	want := []string{".dive/skills", filepath.Join(home, ".dive/skills")}
+	if len(cfg.Skills.Dirs) != len(want) {
+		t.Fatalf("Skills.Dirs len = %d, want %d (%v)", len(cfg.Skills.Dirs), len(want), cfg.Skills.Dirs)
+	}
+	for i, d := range want {
+		if cfg.Skills.Dirs[i] != d {
+			t.Errorf("Skills.Dirs[%d] = %q, want %q", i, cfg.Skills.Dirs[i], d)
+		}
+	}
+}
+
 func TestLoadExampleConfig(t *testing.T) {
 	cfg, err := Load("../../config.example.yaml")
 	if err != nil {
