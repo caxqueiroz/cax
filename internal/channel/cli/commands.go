@@ -24,7 +24,9 @@ func parseCommand(line string) (name, args string) {
 
 // handleCommand dispatches a slash command and returns display output plus a
 // quit flag. It reads only the latest status snapshot already in the model.
-func (m model) handleCommand(line string) (string, bool) {
+// Pointer receiver: the /theme handler mutates the active theme registry
+// and needs to call m.refreshViewport() so the new look applies immediately.
+func (m *model) handleCommand(line string) (string, bool) {
 	name, args := parseCommand(line)
 	switch name {
 	case "quit", "exit":

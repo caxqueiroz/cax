@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
@@ -139,7 +140,10 @@ func newModel(width, height int) model {
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = dimStyle
+	// Spinner color is a static "always dim" — the themed bag is per-render
+	// but spinner.Tick captures Style at scheduling time, so we use a fixed
+	// approximation rather than the active theme's Dim.
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 
 	vp := viewport.New(width, max(1, height-6))
 
