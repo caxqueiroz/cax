@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -71,10 +72,12 @@ type PluginListItem struct {
 }
 
 // historyEntry is one rendered conversation line (user prompt, assistant
-// reply, or system message — distinguished by who).
+// reply, or system message — distinguished by who). duration is non-zero
+// for assistant entries and reports how long the turn took to complete.
 type historyEntry struct {
-	who  string // "you" | "bot" | "sys"
-	text string
+	who      string // "you" | "bot" | "sys"
+	text     string
+	duration time.Duration
 }
 
 // --- custom messages pushed in from the worker goroutine via program.Send ---
@@ -154,6 +157,12 @@ type model struct {
 	// matches = no dropdown visible.
 	completion completionState
 
+	// sessionStart is set in newModel and used by the status row's `up N`
+	// timer. turnStart is the wall clock at submit; turnDone computes the
+	// turn duration as time.Since(turnStart).
+	sessionStart time.Time
+	turnStart    time.Time
+
 	// hookEntries is the typed snapshot of plugin-declared hooks the /hooks
 	// command renders. Populated via WithHookEntries on CLI start; nil when
 	// no plugin contributes hooks. Status.HookCount remains the source of
@@ -211,11 +220,12 @@ func newModel(width, height int) model {
 	vp := viewport.New(vpW, vpH)
 
 	return model{
-		width:    width,
-		height:   height,
-		input:    ta,
-		viewport: vp,
-		spinner:  sp,
+		width:        width,
+		height:       height,
+		input:        ta,
+		viewport:     vp,
+		spinner:      sp,
+		sessionStart: time.Now(),
 	}
 }
 
@@ -365,6 +375,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case turnDoneMsg:
 		m.streaming = false
+		dur := time.Duration(0)
+		if !m.turnStart.IsZero() {
+			dur = time.Since(m.turnStart)
+		}
+		m.turnStart = time.Time{}
 		if msg.err != nil {
 			m.lastErr = msg.err.Error()
 		} else {
@@ -372,7 +387,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text == "" {
 				text = m.stream
 			}
-			m.history = append(m.history, historyEntry{who: "bot", text: text})
+			m.history = append(m.history, historyEntry{who: "bot", text: text, duration: dur})
 		}
 		m.stream = ""
 		m.refreshViewport()
@@ -459,6 +474,7 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	m.streaming = true
 	m.stream = ""
 	m.lastErr = ""
+	m.turnStart = time.Now()
 	if wasEmpty {
 		// Welcome card just disappeared — recompute viewport so the conv box
 		// can claim the freed rows on the very next render.

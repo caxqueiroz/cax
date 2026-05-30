@@ -3,7 +3,58 @@ package cli
 import (
 	"fmt"
 	"strings"
+	"time"
 )
+
+// humanizeDuration formats a wall-clock duration tersely:
+//
+//	< 1s   -> "0.3s"
+//	< 10s  -> "3.2s"  (one decimal)
+//	< 60s  -> "32s"
+//	< 60m  -> "12m"  (or "12m 34s" if precise)
+//	< 24h  -> "1h 12m"
+//	>=24h  -> "1d 2h"
+//
+// `precise` toggles whether sub-units are shown alongside the dominant unit.
+// Live timers prefer false (less jitter); the per-turn trailer prefers true.
+func humanizeDuration(d time.Duration, precise bool) string {
+	if d <= 0 {
+		return "0s"
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	if d < 10*time.Second {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		m := int(d / time.Minute)
+		if precise {
+			s := int((d % time.Minute) / time.Second)
+			if s > 0 {
+				return fmt.Sprintf("%dm %ds", m, s)
+			}
+		}
+		return fmt.Sprintf("%dm", m)
+	}
+	if d < 24*time.Hour {
+		h := int(d / time.Hour)
+		m := int((d % time.Hour) / time.Minute)
+		if m > 0 {
+			return fmt.Sprintf("%dh %dm", h, m)
+		}
+		return fmt.Sprintf("%dh", h)
+	}
+	days := int(d / (24 * time.Hour))
+	h := int((d % (24 * time.Hour)) / time.Hour)
+	if h > 0 {
+		return fmt.Sprintf("%dd %dh", days, h)
+	}
+	return fmt.Sprintf("%dd", days)
+}
 
 type unitStep struct {
 	div  float64

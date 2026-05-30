@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -300,6 +301,10 @@ func (m model) renderStatusRow(_ int) string {
 	// usage is shown separately by the buffer dots + percentage.
 	mem := s.statusLabel.Render("mem") + " " + s.statusValue.Render(humanizeTokens(st.MemoryCount))
 	cwd := s.statusLabel.Render("cwd") + " " + s.statusValue.Render(displayCWD(st.CWD, 24))
+	uptime := ""
+	if !m.sessionStart.IsZero() {
+		uptime = s.statusLabel.Render("up") + " " + s.statusValue.Render(humanizeDuration(time.Since(m.sessionStart), false))
+	}
 	tools := s.statusLabel.Render("🔧") + " " + s.statusValue.Render(fmt.Sprintf("%d", len(st.ToolNames)))
 
 	extras := ""
@@ -316,7 +321,12 @@ func (m model) renderStatusRow(_ int) string {
 
 	bufferLabel := s.statusLabel.Render("buffer") + " " + s.statusValue.Render(fmt.Sprintf("%d%%", pct))
 	gap := "   "
-	return leftIndent + modelPart + gap + dots + " " + bufferLabel + gap + tokens + mid + mem + mid + cwd + mid + tools + extras
+	row := leftIndent + modelPart + gap + dots + " " + bufferLabel + gap + tokens + mid + mem + mid + cwd
+	if uptime != "" {
+		row += mid + uptime
+	}
+	row += mid + tools + extras
+	return row
 }
 
 // displayCWD formats a cwd path for the status row: HOME compressed to "~",
@@ -395,6 +405,10 @@ func (m model) renderConversation() string {
 			b.WriteString(wrap.Render(s.user.Render("❯ ") + h.text))
 		case "bot":
 			b.WriteString(strings.TrimRight(RenderMarkdown(h.text, innerWidth), "\n"))
+			if h.duration > 0 {
+				b.WriteByte('\n')
+				b.WriteString(s.dim.Render("  · took " + humanizeDuration(h.duration, true)))
+			}
 		default:
 			b.WriteString(wrap.Render(s.sys.Render(h.text)))
 		}
@@ -404,10 +418,17 @@ func (m model) renderConversation() string {
 		}
 	}
 	if m.streaming {
+		elapsed := ""
+		if !m.turnStart.IsZero() {
+			elapsed = " " + humanizeDuration(time.Since(m.turnStart), false)
+		}
 		if m.stream == "" {
-			b.WriteString(s.dim.Render(m.spinner.View() + " working…"))
+			b.WriteString(s.dim.Render(m.spinner.View() + " working…" + elapsed))
 		} else {
 			b.WriteString(wrap.Render(m.stream))
+			if elapsed != "" {
+				b.WriteString(s.dim.Render(elapsed))
+			}
 		}
 		b.WriteByte('\n')
 	}
