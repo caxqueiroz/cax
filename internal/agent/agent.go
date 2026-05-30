@@ -166,7 +166,7 @@ func BuildWithMCPInfos(
 
 	opts := dive.AgentOptions{
 		Name:         "cax",
-		SystemPrompt: cfg.Persona,
+		SystemPrompt: composeSystemPrompt(cfg.Persona),
 		Model:        model,
 		Tools:        a.tools,
 		Hooks: dive.Hooks{
@@ -489,6 +489,24 @@ type modelSummarizer struct {
 }
 
 const summarizePrompt = "You are folding new conversation into an existing summary. Output ONLY the new, single summary text — concise, preserving facts, decisions, names, and any details worth remembering from both the prior summary (if any) and the new messages."
+
+// formattingInstructions is appended to every system prompt so the model
+// renders structured output the TUI can syntax-highlight and that users can
+// pull out via /code.
+const formattingInstructions = `Output formatting:
+- ALWAYS wrap file listings, directory trees, command output, file paths, log lines, JSON/YAML/TOML, configuration snippets, and any pre-formatted text in fenced code blocks. Use the language tag when known ( ` + "```go, ```py, ```yaml, ```json, ```sh, ```bash" + ` ); use ` + "```text" + ` for plain pre-formatted content. This keeps everything monospaced, syntax-highlighted, and selectable via /code.
+- For inline file/identifier references use ` + "`backticks`" + `.
+- When showing terminal output, include the command on its own line as a comment so the reader can re-run it: e.g. ` + "```sh\n# ls -la\n…\n```" + `.`
+
+// composeSystemPrompt prepends the user's persona to the built-in formatting
+// instructions. If the persona is empty, falls back to a neutral default.
+func composeSystemPrompt(persona string) string {
+	persona = strings.TrimSpace(persona)
+	if persona == "" {
+		persona = "A concise, helpful personal assistant."
+	}
+	return persona + "\n\n" + formattingInstructions
+}
 
 func (s modelSummarizer) Summarize(ctx context.Context, priorSummary string, msgs []memory.Message) (string, error) {
 	if len(msgs) == 0 {

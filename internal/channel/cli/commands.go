@@ -95,11 +95,26 @@ func (m *model) cmdCode(args string) string {
 	if last == nil {
 		return "code: no assistant reply yet"
 	}
+	sub := strings.ToLower(strings.TrimSpace(args))
+	// "reply" opens the entire bot reply — useful when the model returned
+	// unfenced output (a file listing, ls output, error message etc.) that
+	// users still want to copy with the terminal's native mouse selection.
+	if sub == "reply" || sub == "last" {
+		path, err := writeScratchFile(last.text, "md")
+		if err != nil {
+			return fmt.Sprintf("code: %v", err)
+		}
+		bin, opts := resolveCodeViewer()
+		if bin == "" {
+			return fmt.Sprintf("code: wrote %s — set $PAGER or $EDITOR to open it automatically", path)
+		}
+		m.pendingExec = teaExecProcess(bin, append(opts, path), "full reply", path)
+		return ""
+	}
 	blocks := extractCodeBlocks(last.text)
 	if len(blocks) == 0 {
-		return "code: no fenced code blocks in the last reply"
+		return "code: no fenced code blocks in the last reply (try /code reply to open the whole text)"
 	}
-	sub := strings.ToLower(strings.TrimSpace(args))
 	var payload string
 	var lang string
 	var label string
