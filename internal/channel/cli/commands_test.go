@@ -6,7 +6,39 @@ import (
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/hooks"
+	"github.com/caxqueiroz/czcli/internal/theme"
 )
+
+func TestCmdThemeListAndSet(t *testing.T) {
+	theme.LoadBuiltins()
+	dark, _ := theme.Get("default-dark")
+	theme.Set(dark)
+
+	m := newModel(80, 24)
+	out, quit := m.handleCommand("/theme list")
+	if quit {
+		t.Fatalf("list should not quit")
+	}
+	if !strings.Contains(out, "default-dark") || !strings.Contains(out, "dracula") {
+		t.Fatalf("list missing themes: %q", out)
+	}
+	if !strings.Contains(out, "* default-dark") {
+		t.Fatalf("active theme marker missing: %q", out)
+	}
+
+	out, _ = m.handleCommand("/theme dracula")
+	if !strings.Contains(out, "dracula") {
+		t.Fatalf("set message missing: %q", out)
+	}
+	if theme.Active().Name != "dracula" {
+		t.Fatalf("active not switched, got %s", theme.Active().Name)
+	}
+
+	out, _ = m.handleCommand("/theme no-such-theme")
+	if !strings.Contains(out, "not found") {
+		t.Fatalf("expected not-found message, got %q", out)
+	}
+}
 
 func TestCmdHooksEmpty(t *testing.T) {
 	m := model{

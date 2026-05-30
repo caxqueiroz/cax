@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/theme"
 )
 
 // parseCommand splits "/name args..." into ("name", "args"). The leading slash
@@ -51,8 +53,10 @@ func (m *model) handleCommand(line string) (string, bool) {
 		return m.cmdPlugin(args), false
 	case "hooks":
 		return m.cmdHooks(), false
+	case "theme":
+		return m.cmdTheme(args), false
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks", name), false
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme", name), false
 	}
 }
 
@@ -499,6 +503,45 @@ func (m model) cmdHooks() string {
 		fmt.Fprintf(&b, "\n  %-16s %-32s [%s] %ds", string(e.Event), matcher, source, timeout)
 	}
 	return b.String()
+}
+
+// cmdTheme handles "/theme list" and "/theme <name>". Setting persists the
+// choice to ~/.czcli/state.json and the next refreshViewport call applies
+// the new look.
+func (m *model) cmdTheme(args string) string {
+	args = strings.TrimSpace(args)
+	if args == "" || args == "list" || args == "ls" {
+		names := theme.List()
+		if len(names) == 0 {
+			return "no themes registered"
+		}
+		active := ""
+		if a := theme.Active(); a != nil {
+			active = a.Name
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "themes (%d):", len(names))
+		for _, n := range names {
+			marker := "  "
+			if n == active {
+				marker = "* "
+			}
+			fmt.Fprintf(&b, "\n  %s%s", marker, n)
+		}
+		return b.String()
+	}
+	t, err := theme.Get(args)
+	if err != nil {
+		return fmt.Sprintf("theme %q not found (try /theme list)", args)
+	}
+	theme.Set(t)
+	if path := theme.StateFile(); path != "" {
+		if err := theme.WriteActive(path); err != nil {
+			slog.Warn("theme: persist state", "err", err)
+		}
+	}
+	m.refreshViewport()
+	return fmt.Sprintf("theme set to %q", t.Name)
 }
 
 // inferPluginName extracts a sensible default from a git URL: the last path
