@@ -6,6 +6,42 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestLoadBuiltins(t *testing.T) {
+	reset()
+	ts := LoadBuiltins()
+	want := []string{
+		"default-dark", "default-light", "dracula",
+		"gruvbox-dark", "mono", "nord",
+		"solarized-dark", "solarized-light",
+	}
+	if len(ts) != len(want) {
+		t.Fatalf("LoadBuiltins returned %d themes, want %d (%v)", len(ts), len(want), names(ts))
+	}
+	seen := map[string]bool{}
+	for _, th := range ts {
+		if th.Name == "" {
+			t.Fatalf("empty name in %+v", th)
+		}
+		if th.Foreground == "" || th.Accent == "" || th.Markdown == "" {
+			t.Fatalf("%s missing required field: %+v", th.Name, th)
+		}
+		seen[th.Name] = true
+	}
+	for _, n := range want {
+		if !seen[n] {
+			t.Fatalf("missing built-in %q", n)
+		}
+	}
+}
+
+func names(ts []*Theme) []string {
+	out := make([]string, len(ts))
+	for i, t := range ts {
+		out[i] = t.Name
+	}
+	return out
+}
+
 func TestRegistry(t *testing.T) {
 	reset()
 	a := &Theme{Name: "a"}
