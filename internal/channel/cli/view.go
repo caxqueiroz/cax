@@ -227,6 +227,8 @@ func (m *model) refreshViewport() {
 }
 
 // View composes top bar / sep / viewport / sep / bottom bar / sep / input.
+// When helpOpen is true an overlay is rendered between the top bar and the
+// viewport listing keybindings + current slash commands.
 func (m model) View() string {
 	s := styles()
 	sep := s.sep.Render(strings.Repeat("─", m.width))
@@ -235,6 +237,21 @@ func (m model) View() string {
 		"",
 		leftIndent+m.input.View(),
 	)
+	if m.helpOpen {
+		overlay := indentBlock(s.dim.Render(m.renderHelpOverlay()))
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.renderTopBar(),
+			sep,
+			overlay,
+			sep,
+			m.viewport.View(),
+			sep,
+			m.renderBottomBar(),
+			sep,
+			inputBlock,
+		)
+	}
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		m.renderTopBar(),
@@ -245,6 +262,19 @@ func (m model) View() string {
 		sep,
 		inputBlock,
 	)
+}
+
+// indentBlock prefixes every line of text with the standard left indent.
+func indentBlock(text string) string {
+	var b strings.Builder
+	for i, line := range strings.Split(text, "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(leftIndent)
+		b.WriteString(line)
+	}
+	return b.String()
 }
 
 // humanizeTokensTenths renders e.g. 6100 → "6.1k" for the gauge numerator.

@@ -242,3 +242,37 @@ func TestCmdLSPEmpty(t *testing.T) {
 		t.Errorf("/lsp empty out = %q, want 'no LSP...'", out)
 	}
 }
+
+func TestReloadCallsPluginBackend(t *testing.T) {
+	p := newFakePlugins()
+	m := newModel(80, 24)
+	m.plugins = p
+	out, quit := m.handleCommand("/reload")
+	if quit {
+		t.Fatalf("/reload must not quit")
+	}
+	if !strings.Contains(out, "reloaded") {
+		t.Errorf("/reload output = %q, want substring 'reloaded'", out)
+	}
+	if p.rebuilds != 1 {
+		t.Errorf("Rebuild called %d times, want 1", p.rebuilds)
+	}
+}
+
+func TestReloadWithoutBackend(t *testing.T) {
+	m := newModel(80, 24)
+	out, _ := m.handleCommand("/reload")
+	if !strings.Contains(out, "not available") {
+		t.Errorf("/reload without backend = %q, want 'not available' hint", out)
+	}
+}
+
+func TestRenderHelpOverlayContents(t *testing.T) {
+	m := newModel(80, 24)
+	out := m.renderHelpOverlay()
+	for _, want := range []string{"Enter", "Alt+Enter", "Ctrl+L", "Ctrl+R", "Ctrl+T", "Ctrl+/", "/reload", "/quit"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help overlay missing %q, got:\n%s", want, out)
+		}
+	}
+}

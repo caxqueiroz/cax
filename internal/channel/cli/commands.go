@@ -55,9 +55,57 @@ func (m *model) handleCommand(line string) (string, bool) {
 		return m.cmdHooks(), false
 	case "theme":
 		return m.cmdTheme(args), false
+	case "reload":
+		return m.cmdReload(), false
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme", name), false
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload", name), false
 	}
+}
+
+// cmdReload triggers the wired pluginBackend's Rebuild (which re-runs the
+// full plugins → skills → mcp → lsp → hooks → assistant.Rebuild chain in
+// cmd/czcli/main.go). Without a wired backend, returns a usage hint.
+func (m model) cmdReload() string {
+	if m.plugins == nil {
+		return "reload: not available (plugins backend not wired); set plugins.enabled: true in config.yaml"
+	}
+	if err := m.plugins.Rebuild(context.Background()); err != nil {
+		return fmt.Sprintf("reload failed: %v", err)
+	}
+	return "reloaded: plugins, skills, mcp, lsp, hooks, user commands"
+}
+
+// renderHelpOverlay returns the multi-line help text for the Ctrl+/ overlay.
+// Lists keybindings and the slash commands the model currently knows about
+// (built-in + user-level + plugin-level merged via m.userCommands).
+func (m model) renderHelpOverlay() string {
+	var b strings.Builder
+	b.WriteString("keybindings:\n")
+	b.WriteString("  Enter            send\n")
+	b.WriteString("  Alt+Enter        newline\n")
+	b.WriteString("  Ctrl+L           /model picker\n")
+	b.WriteString("  Ctrl+R           /reload\n")
+	b.WriteString("  Ctrl+T           cycle theme\n")
+	b.WriteString("  Ctrl+/           toggle this overlay\n")
+	b.WriteString("  Ctrl+C / Esc     quit\n")
+	b.WriteString("  PgUp / PgDn      scroll viewport\n")
+	b.WriteString("\nbuilt-in commands:\n")
+	b.WriteString("  /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /quit\n")
+	if len(m.userCommands) > 0 {
+		b.WriteString("\nuser + plugin commands:\n")
+		for _, c := range m.userCommands {
+			label := "/" + c.Name
+			if c.ArgumentHint != "" {
+				label += " " + c.ArgumentHint
+			}
+			if c.Description != "" {
+				fmt.Fprintf(&b, "  %-32s  %s  [%s]\n", label, c.Description, c.Source)
+			} else {
+				fmt.Fprintf(&b, "  %-32s  [%s]\n", label, c.Source)
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m model) cmdStats() string {
