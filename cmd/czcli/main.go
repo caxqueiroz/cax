@@ -9,14 +9,17 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/caxqueiroz/czcli/internal/agent"
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/channel/cli"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
 	"github.com/caxqueiroz/czcli/internal/scheduler"
+	"github.com/caxqueiroz/czcli/internal/skills"
 )
 
 func main() {
@@ -60,7 +63,20 @@ func run() error {
 		return fmt.Errorf("build model: %w", err)
 	}
 
-	assistant, err := agent.Build(ctx, cfg, store, model)
+	// Load skills (best-effort: missing dirs are logged, not fatal).
+	skillRes, err := skills.Load(cfg.Skills, nil)
+	if err != nil {
+		slog.Warn("skills: load failed; continuing without skills", "err", err)
+		skillRes = nil
+	}
+
+	// Connect MCP servers (best-effort: per-server errors land in ServerInfo).
+	mcpTools, mcpInfos, err := mcp.Connect(ctx, cfg.MCP.Servers, mcpTokenPath())
+	if err != nil {
+		slog.Warn("mcp: connect failed; continuing without MCP tools", "err", err)
+	}
+
+	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos)
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
 	}
@@ -136,4 +152,14 @@ func (a scheduleAdapter) Upsert(ctx context.Context, sc config.ScheduleConfig) e
 
 func (a scheduleAdapter) Reload(ctx context.Context) error {
 	return a.sched.Reload(ctx)
+}
+
+// mcpTokenPath returns the default OAuth token-store path under the user's
+// home dir, falling back to a process-local file when home is unresolvable.
+func mcpTokenPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "czcli-mcp-tokens.json")
+	}
+	return filepath.Join(home, ".czcli", "mcp-tokens.json")
 }
