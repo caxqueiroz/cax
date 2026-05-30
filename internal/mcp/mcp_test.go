@@ -2,31 +2,58 @@ package mcp
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/caxqueiroz/czcli/internal/config"
 )
 
-func TestConnect_NoServersReturnsNil(t *testing.T) {
-	got, err := Connect(context.Background(), config.MCPConfig{})
+// TestConnectEmptyReturnsNoTools is the trivial path — no servers, no work.
+func TestConnectEmptyReturnsNoTools(t *testing.T) {
+	tools, infos, err := Connect(context.Background(), nil, filepath.Join(t.TempDir(), "tokens.json"))
 	if err != nil {
-		t.Fatalf("connect: %v", err)
+		t.Fatalf("Connect: %v", err)
 	}
-	if len(got) != 0 {
-		t.Fatalf("expected no tools, got %d", len(got))
+	if len(tools) != 0 || len(infos) != 0 {
+		t.Errorf("tools=%d infos=%d, want both 0", len(tools), len(infos))
 	}
 }
 
-func TestConnect_BadServerDegradesGracefully(t *testing.T) {
-	// A configured server must not fail Connect; the best-effort connector
-	// returns whatever connected (here, nothing) and logs.
-	got, err := Connect(context.Background(), config.MCPConfig{
-		Servers: []config.MCPServerConfig{
-			{Name: "broken", Command: "/nonexistent/binary-xyz"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("connect should be best-effort, got err: %v", err)
+// TestConnectStdioFailureRecorded confirms a bogus stdio server is reported
+// as a not-connected ServerInfo with a LastError, never aborts other servers.
+func TestConnectStdioFailureRecorded(t *testing.T) {
+	servers := []config.MCPServerConfig{
+		{Name: "bogus", Command: "/nonexistent/binary-xyz", Args: []string{"--help"}},
 	}
-	_ = got // may be empty; the point is no error
+	tokens := filepath.Join(t.TempDir(), "tokens.json")
+	tools, infos, err := Connect(context.Background(), servers, tokens)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if len(tools) != 0 {
+		t.Errorf("tools = %d, want 0 (server should fail to start)", len(tools))
+	}
+	if len(infos) != 1 {
+		t.Fatalf("infos len = %d, want 1", len(infos))
+	}
+	got := infos[0]
+	if got.Name != "bogus" || got.Transport != "stdio" || got.Connected {
+		t.Errorf("got %+v, want Name=bogus Transport=stdio Connected=false", got)
+	}
+	if got.LastError == "" {
+		t.Errorf("LastError empty, want non-empty failure reason")
+	}
+}
+
+// TestConnectUnknownTransport rejects a server with neither Command nor URL.
+func TestConnectUnknownTransport(t *testing.T) {
+	servers := []config.MCPServerConfig{{Name: "blank"}}
+	tokens := filepath.Join(t.TempDir(), "tokens.json")
+	_, infos, err := Connect(context.Background(), servers, tokens)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if len(infos) != 1 || infos[0].Connected || infos[0].LastError == "" {
+		t.Fatalf("got %+v, want one failed ServerInfo with LastError set", infos)
+	}
 }
