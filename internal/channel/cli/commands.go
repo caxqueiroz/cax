@@ -43,10 +43,12 @@ func (m model) handleCommand(line string) (string, bool) {
 		return m.cmdSkills(), false
 	case "mcp":
 		return m.cmdMCP(), false
+	case "lsp":
+		return m.cmdLSP(), false
 	case "plugin":
 		return m.cmdPlugin(args), false
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /plugin", name), false
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin", name), false
 	}
 }
 
@@ -291,6 +293,33 @@ func (m model) cmdSkills() string {
 		return "no skills loaded (configure skills.dirs in config.yaml)"
 	}
 	return fmt.Sprintf("skills (%d): %s", s.SkillCount, strings.Join(s.SkillNames, ", "))
+}
+
+// cmdLSP renders the configured LSP servers, the union of languages they
+// serve, and the per-server state + last error (if any).
+func (m model) cmdLSP() string {
+	if !m.hasStatus {
+		return "lsp unavailable (no status yet)"
+	}
+	s := m.status
+	if s.LSPServerCount == 0 {
+		return "no LSP servers configured (add entries under lsp.servers in config.yaml)"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "lsp servers (%d) · languages: %s",
+		s.LSPServerCount, strings.Join(s.LSPLanguages, ","))
+	for _, srv := range s.LSPServers {
+		state := "running"
+		if !srv.Running {
+			state = "stopped"
+		}
+		fmt.Fprintf(&b, "\n  %-16s [%s] langs=%s",
+			srv.Name, state, strings.Join(srv.Languages, ","))
+		if srv.LastError != "" {
+			fmt.Fprintf(&b, "  error=%q", srv.LastError)
+		}
+	}
+	return b.String()
 }
 
 // cmdMCP renders the configured MCP servers and their connection state.

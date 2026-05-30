@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/caxqueiroz/czcli/internal/channel"
 )
 
 func TestParseCommand(t *testing.T) {
@@ -144,5 +146,36 @@ func TestCmdMCPEmpty(t *testing.T) {
 	out, _ := m.handleCommand("/mcp")
 	if !strings.Contains(out, "no mcp") {
 		t.Errorf("/mcp empty out = %q, want 'no mcp...'", out)
+	}
+}
+
+func TestCmdLSPLists(t *testing.T) {
+	m := newModel(80, 24)
+	m.hasStatus = true
+	m.status = statusFixture()
+	m.status.LSPServerCount = 2
+	m.status.LSPLanguages = []string{"go", "python"}
+	m.status.LSPServers = []channel.LSPServerSummary{
+		{Name: "gopls", Languages: []string{"go"}, Running: true},
+		{Name: "pyright", Languages: []string{"python"}, Running: false, LastError: "pyright not found"},
+	}
+	out, quit := m.handleCommand("/lsp")
+	if quit {
+		t.Fatal("quit unexpected")
+	}
+	for _, want := range []string{"gopls", "go", "pyright", "pyright not found"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("/lsp out = %q, want substring %q", out, want)
+		}
+	}
+}
+
+func TestCmdLSPEmpty(t *testing.T) {
+	m := newModel(80, 24)
+	m.hasStatus = true
+	m.status = statusFixture()
+	out, _ := m.handleCommand("/lsp")
+	if !strings.Contains(out, "no LSP") && !strings.Contains(out, "no lsp") {
+		t.Errorf("/lsp empty out = %q, want 'no LSP...'", out)
 	}
 }

@@ -80,9 +80,9 @@ func (m model) renderGauge(tokens, budget int) string {
 	)
 }
 
-// renderBottomBar: "tok 1d124k 1w812k 1m3.2M·mem18MB·🔧8 🤖3 · 📜N · 🔌M · 🧩P".
-// Extra counters (skills 📜, MCP 🔌, plugins 🧩) appear only when non-zero so
-// the bottom bar stays clean for users who don't use them.
+// renderBottomBar: "tok 1d124k 1w812k 1m3.2M·mem18MB·🔧8 🤖3 · 📜N · 🔌M · 🧩P · 🧠L".
+// Extra counters (skills 📜, MCP 🔌, plugins 🧩, LSP 🧠) appear only when
+// non-zero so the bottom bar stays clean for users who don't use them.
 func (m model) renderBottomBar() string {
 	if !m.hasStatus {
 		return barStyle.Width(m.width).Render("")
@@ -101,6 +101,9 @@ func (m model) renderBottomBar() string {
 	}
 	if s.PluginCount > 0 {
 		fmt.Fprintf(&extras, " · 🧩%d", s.PluginCount)
+	}
+	if s.LSPServerCount > 0 {
+		fmt.Fprintf(&extras, " · 🧠%d", s.LSPServerCount)
 	}
 
 	line := fmt.Sprintf("tok 1d%s 1w%s 1m%s·mem%s·🔧%d 🤖%d%s",
