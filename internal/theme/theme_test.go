@@ -1,10 +1,69 @@
 package theme
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
+
+func TestLoadUserDirAndResolve(t *testing.T) {
+	reset()
+	LoadBuiltins()
+
+	dir := t.TempDir()
+	custom := `name: cust
+foreground: "#ffffff"
+dim: "#777777"
+separator: "#333333"
+accent: "#ffcc00"
+ok: "#00ff00"
+amber: "#ffaa00"
+red: "#ff0000"
+user_prefix: "#ffcc00"
+assistant_text: "#ffffff"
+sys_text: "#888888"
+code_bg: "#111111"
+gauge_filled: "#00ff00"
+gauge_empty: "#333333"
+markdown: "dark"
+`
+	if err := os.WriteFile(filepath.Join(dir, "cust.yaml"), []byte(custom), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A broken file is logged + skipped, not fatal.
+	if err := os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("not: [valid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	LoadUserDir(dir)
+
+	if _, err := Get("cust"); err != nil {
+		t.Fatalf("user theme not registered: %v", err)
+	}
+
+	// state.json takes precedence
+	state := filepath.Join(t.TempDir(), "state.json")
+	if err := writeStateTheme(state, "dracula"); err != nil {
+		t.Fatal(err)
+	}
+	got := Resolve(state, "nord")
+	if got.Name != "dracula" {
+		t.Fatalf("state wins: got %q", got.Name)
+	}
+
+	// config name when state missing
+	got = Resolve(filepath.Join(t.TempDir(), "nope.json"), "nord")
+	if got.Name != "nord" {
+		t.Fatalf("config wins: got %q", got.Name)
+	}
+
+	// fallback when both absent: returns either default-dark or default-light
+	got = Resolve(filepath.Join(t.TempDir(), "nope.json"), "")
+	if got.Name != "default-dark" && got.Name != "default-light" {
+		t.Fatalf("fallback should be a default-* theme, got %q", got.Name)
+	}
+}
 
 func TestLoadBuiltins(t *testing.T) {
 	reset()
