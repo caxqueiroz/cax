@@ -254,6 +254,64 @@ plugins:
 	}
 }
 
+func TestConfigCLIThemeField(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.yaml")
+	yaml := `persona: x
+providers:
+  - name: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+embeddings:
+  provider: openai
+  model: text-embedding-3-small
+  dim: 1536
+  api_key_env: OPENAI_API_KEY
+memory:
+  db_path: /tmp/czcli.db
+cli:
+  theme: dracula
+`
+	if err := os.WriteFile(p, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.CLI.Theme != "dracula" {
+		t.Fatalf("CLI.Theme = %q", cfg.CLI.Theme)
+	}
+}
+
+func TestConfigCLIThemeDefaults(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.yaml")
+	yaml := `persona: x
+providers:
+  - name: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+embeddings:
+  provider: openai
+  model: text-embedding-3-small
+  dim: 1536
+  api_key_env: OPENAI_API_KEY
+memory:
+  db_path: /tmp/czcli.db
+`
+	if err := os.WriteFile(p, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.CLI.Theme != "" {
+		t.Fatalf("CLI.Theme default = %q want empty", cfg.CLI.Theme)
+	}
+}
+
 func TestLoadLSPSection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

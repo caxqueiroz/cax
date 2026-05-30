@@ -22,7 +22,15 @@ type Config struct {
 	Skills     SkillsConfig     `yaml:"skills"`
 	Plugins    PluginsConfig    `yaml:"plugins"`
 	LSP        LSPConfig        `yaml:"lsp"`
+	CLI        CLIConfig        `yaml:"cli"`
 	Schedules  []ScheduleConfig `yaml:"schedules"`
+}
+
+// CLIConfig configures the TUI channel. Theme is the initial theme name;
+// resolution falls back to ~/.czcli/state.json, then a terminal-adapted
+// default-{dark,light}.
+type CLIConfig struct {
+	Theme string `yaml:"theme"`
 }
 
 // ProviderConfig configures one LLM provider in fallback order.
