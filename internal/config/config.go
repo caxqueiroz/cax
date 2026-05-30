@@ -21,6 +21,7 @@ type Config struct {
 	MCP        MCPConfig        `yaml:"mcp"`
 	Skills     SkillsConfig     `yaml:"skills"`
 	Plugins    PluginsConfig    `yaml:"plugins"`
+	LSP        LSPConfig        `yaml:"lsp"`
 	Schedules  []ScheduleConfig `yaml:"schedules"`
 }
 
@@ -93,9 +94,17 @@ type PluginsConfig struct {
 	Dirs    []string `yaml:"dirs"`
 }
 
-// LSPServerConfig configures a Language Server Protocol server. Stubbed by
-// Plan 7 so plugins.Contributions.LSPServers has a type; Plan 8 owns the
-// runtime and may extend this type additively.
+// LSPConfig configures the Language Server Protocol manager (Plan 8). When
+// disabled, no servers are spawned even if Servers is non-empty. Plugins may
+// contribute LSPServerConfigs that are merged with this list at startup.
+type LSPConfig struct {
+	Enabled bool              `yaml:"enabled"`
+	Servers []LSPServerConfig `yaml:"servers"`
+}
+
+// LSPServerConfig configures a Language Server Protocol server (stdio). Used
+// both by the user-config lsp.servers list and by plugins'
+// .claude-plugin/lsp.json contributions.
 type LSPServerConfig struct {
 	Name         string   `yaml:"name"`
 	Command      string   `yaml:"command"`

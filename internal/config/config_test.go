@@ -250,3 +250,38 @@ plugins:
 		t.Errorf("Plugins.Dirs[1] = %q, want unchanged", cfg.Plugins.Dirs[1])
 	}
 }
+
+func TestLoadLSPSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	body := `
+providers:
+  - {name: openai, model: gpt-x, api_key_env: K}
+embeddings: {provider: openai, model: e, dim: 8, api_key_env: K}
+memory: {db_path: ` + filepath.Join(dir, "m.db") + `}
+lsp:
+  enabled: true
+  servers:
+    - name: gopls
+      command: gopls
+      args: []
+      languages: [go]
+      root_patterns: [go.mod]
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.LSP.Enabled {
+		t.Error("LSP.Enabled = false; want true")
+	}
+	if len(cfg.LSP.Servers) != 1 || cfg.LSP.Servers[0].Name != "gopls" {
+		t.Fatalf("LSP.Servers = %+v", cfg.LSP.Servers)
+	}
+	if len(cfg.LSP.Servers[0].Languages) == 0 || cfg.LSP.Servers[0].Languages[0] != "go" {
+		t.Fatalf("Languages = %+v", cfg.LSP.Servers[0].Languages)
+	}
+}
