@@ -97,9 +97,40 @@ func TestStatusRowUsesBufferLabel(t *testing.T) {
 	m.status = statusFixture()
 	m.hasStatus = true
 	row := m.renderStatusRow(80)
-	for _, want := range []string{"claude-opus", "✓", "buffer", "76%", "1d", "mem", "🔧"} {
+	for _, want := range []string{"claude-opus", "✓", "buffer", "76%", "1d", "mem", "cwd", "🔧"} {
 		if !strings.Contains(row, want) {
 			t.Errorf("status row missing %q\n%s", want, row)
+		}
+	}
+}
+
+// TestDisplayCWD covers HOME compression, length cap, and the empty case.
+func TestDisplayCWD(t *testing.T) {
+	t.Setenv("HOME", "/Users/x")
+	cases := []struct {
+		in, want string
+		max      int
+	}{
+		{"", "?", 24},
+		{"/Users/x", "~", 24},
+		{"/Users/x/dev/czcli", "~/dev/czcli", 24},
+		{"/tmp/nested/dir/that/is/quite/long", "…re/nested/dir/that/is/quite/long"[:24], 24},
+	}
+	for _, c := range cases {
+		got := displayCWD(c.in, c.max)
+		if c.in == "/tmp/nested/dir/that/is/quite/long" {
+			// Just assert the leading ellipsis and the trailing suffix; the
+			// exact prefix bytes depend on the input length.
+			if !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, "long") {
+				t.Errorf("displayCWD(%q, %d) = %q, want leading … and trailing 'long'", c.in, c.max, got)
+			}
+			if len([]rune(got)) != c.max {
+				t.Errorf("displayCWD(%q, %d) length = %d, want %d", c.in, c.max, len([]rune(got)), c.max)
+			}
+			continue
+		}
+		if got != c.want {
+			t.Errorf("displayCWD(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
 		}
 	}
 }

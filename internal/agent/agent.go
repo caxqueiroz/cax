@@ -352,6 +352,9 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 		st.MessageCount = stats.MessageCount
 		st.MemoryCount = stats.MemoryCount
 	}
+	if cwd, err := os.Getwd(); err == nil {
+		st.CWD = cwd
+	}
 	if roll, err := a.store.UsageRollups(ctx); err == nil {
 		st.Usage = channel.UsageRollup{
 			Day:   channel.UsageTotals{InputTokens: roll.Day.InputTokens, OutputTokens: roll.Day.OutputTokens},

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -277,6 +278,7 @@ func (m model) renderStatusRow(_ int) string {
 	mid := s.dim.Render(" · ")
 	tokens := s.statusLabel.Render("1d") + " " + s.statusValue.Render(humanizeTokens(day))
 	mem := s.statusLabel.Render("mem") + " " + s.statusValue.Render(humanizeBytes(st.MemSizeBytes))
+	cwd := s.statusLabel.Render("cwd") + " " + s.statusValue.Render(displayCWD(st.CWD, 24))
 	tools := s.statusLabel.Render("🔧") + " " + s.statusValue.Render(fmt.Sprintf("%d", len(st.ToolNames)))
 
 	extras := ""
@@ -293,7 +295,31 @@ func (m model) renderStatusRow(_ int) string {
 
 	bufferLabel := s.statusLabel.Render("buffer") + " " + s.statusValue.Render(fmt.Sprintf("%d%%", pct))
 	gap := "   "
-	return leftIndent + modelPart + gap + dots + " " + bufferLabel + gap + tokens + mid + mem + mid + tools + extras
+	return leftIndent + modelPart + gap + dots + " " + bufferLabel + gap + tokens + mid + mem + mid + cwd + mid + tools + extras
+}
+
+// displayCWD formats a cwd path for the status row: HOME compressed to "~",
+// and (if too long) left-truncated with an ellipsis prefix so the trailing
+// components remain visible (those are the bits the user cares about).
+// Returns "?" when path is empty.
+func displayCWD(path string, max int) string {
+	if path == "" {
+		return "?"
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		switch {
+		case path == home:
+			path = "~"
+		case strings.HasPrefix(path, home+string(os.PathSeparator)):
+			path = "~" + path[len(home):]
+		}
+	}
+	if max <= 1 || len([]rune(path)) <= max {
+		return path
+	}
+	runes := []rune(path)
+	// Keep the trailing components; prefix with "…".
+	return "…" + string(runes[len(runes)-(max-1):])
 }
 
 // renderBufferDots draws the 8-cell dot indicator with threshold coloring.

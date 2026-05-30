@@ -61,6 +61,11 @@ type Status struct {
 	PluginCount    int
 	PluginNames    []string
 	HookCount      int
+
+	// CWD is the assistant's current working directory, surfaced in the status
+	// row next to mem. HOME is compressed to "~"; long paths are truncated by
+	// the renderer.
+	CWD string
 }
 
 // LSPServerSummary is the per-server LSP detail surfaced via /lsp; it mirrors
