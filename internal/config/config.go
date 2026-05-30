@@ -33,6 +33,16 @@ type ProviderConfig struct {
 	TokenEnv  string `yaml:"token_env"`   // bedrock: env var holding the x-api-key value
 	APIKeyEnv string `yaml:"api_key_env"` // openai: env var holding the API key
 	MaxTokens int    `yaml:"max_tokens"`  // default 4096 if 0
+	// Enabled toggles this provider. Pointer so an absent field defaults to
+	// "enabled" (backward compatible). Set `enabled: false` to skip without
+	// deleting the entry.
+	Enabled *bool `yaml:"enabled,omitempty"`
+}
+
+// IsEnabled reports whether the provider should be wired into the fallback
+// chain. Default (Enabled == nil) is true.
+func (p ProviderConfig) IsEnabled() bool {
+	return p.Enabled == nil || *p.Enabled
 }
 
 // EmbeddingsConfig configures the embedding model.
@@ -229,7 +239,14 @@ func validate(cfg *Config) error {
 	if len(cfg.Providers) == 0 {
 		return fmt.Errorf("config: at least one provider is required")
 	}
+	enabledCount := 0
 	for i, p := range cfg.Providers {
+		if !p.IsEnabled() {
+			// Disabled providers are skipped at build time; don't enforce
+			// field requirements so users can keep template entries.
+			continue
+		}
+		enabledCount++
 		switch p.Name {
 		case "openai":
 			if p.APIKeyEnv == "" {
@@ -248,6 +265,9 @@ func validate(cfg *Config) error {
 		if p.Model == "" {
 			return fmt.Errorf("config: providers[%d] (%s): model is required", i, p.Name)
 		}
+	}
+	if enabledCount == 0 {
+		return fmt.Errorf("config: at least one provider must be enabled (set enabled: true)")
 	}
 	if cfg.Embeddings.Provider == "" {
 		return fmt.Errorf("config: embeddings.provider is required")

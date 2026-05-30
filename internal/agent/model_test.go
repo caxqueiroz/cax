@@ -220,4 +220,41 @@ func TestBuildModelRequiresProviders(t *testing.T) {
 	}
 }
 
+func TestBuildModelSkipsDisabledProviders(t *testing.T) {
+	disabled := false
+	enabled := true
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "bedrock", Model: "anything", BaseURL: "x", TokenEnv: "Y", Enabled: &disabled},
+			{Name: "openai", Model: "gpt-x", APIKeyEnv: "OPENAI_API_KEY", Enabled: &enabled},
+		},
+	}
+	m, err := BuildModel(cfg)
+	if err != nil {
+		t.Fatalf("BuildModel: %v", err)
+	}
+	fb, ok := m.(*fallbackLLM)
+	if !ok {
+		t.Fatalf("BuildModel returned %T, want *fallbackLLM", m)
+	}
+	if len(fb.providers) != 1 {
+		t.Fatalf("providers = %d, want 1 (bedrock disabled)", len(fb.providers))
+	}
+	if fb.providers[0].Name() != "openai" {
+		t.Fatalf("only provider = %q, want openai", fb.providers[0].Name())
+	}
+}
+
+func TestBuildModelErrorsWhenAllDisabled(t *testing.T) {
+	disabled := false
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "openai", Model: "gpt-x", APIKeyEnv: "OPENAI_API_KEY", Enabled: &disabled},
+		},
+	}
+	if _, err := BuildModel(cfg); err == nil {
+		t.Fatal("expected error when all providers disabled, got nil")
+	}
+}
+
 var _ = os.Getenv // keep os imported for env-driven helpers above

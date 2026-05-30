@@ -4,19 +4,23 @@
 persona: "A concise, helpful personal assistant."
 
 providers:
-  # OpenAI (dive built-in). Easiest to start with: set OPENAI_API_KEY and go.
+  # Toggle providers with `enabled`. The first enabled entry is primary; the
+  # rest are fallbacks in order. Disabled entries are skipped and don't need
+  # complete fields, so it's safe to keep them as templates.
   - name: openai
+    enabled: true
     model: gpt-5.4
-    api_key_env: OPENAI_API_KEY
+    api_key_env: OPENAI_API_KEY   # name of the env var holding the key, not the key itself
     max_tokens: 4096
   # Bedrock Claude via KrakenD AI Gateway (no-op passthrough).
   # Native Anthropic payload; the API key is sent in the x-api-key header.
-  # Uncomment + fill in to use as a fallback (or move above to make primary).
-  # - name: bedrock
-  #   model: us.anthropic.claude-opus-4-7
-  #   base_url: https://krakend.internal/bedrock
-  #   token_env: CZCLI_BEDROCK_API_KEY
-  #   max_tokens: 4096
+  # Flip `enabled: true` and fill the fields to wire it as a fallback.
+  - name: bedrock
+    enabled: false
+    model: us.anthropic.claude-opus-4-7
+    base_url: https://krakend.internal/bedrock
+    token_env: CZCLI_BEDROCK_API_KEY
+    max_tokens: 4096
 
 embeddings:
   provider: openai

@@ -121,19 +121,28 @@ func (m model) renderBottomBar() string {
 	return dimStyle.Width(m.width).Render(line)
 }
 
-// renderConversation builds the body string fed to the viewport.
+// renderConversation builds the body string fed to the viewport. All entries
+// are wrapped to the viewport width so long lines (esp. error messages) can't
+// blow past the bottom bar and shred the layout.
 func (m model) renderConversation() string {
+	w := m.viewport.Width
+	if w <= 0 {
+		w = m.width
+	}
+	wrap := lipgloss.NewStyle().Width(w)
+	wrapErr := redStyle.Width(w)
 	var b strings.Builder
 	for _, h := range m.history {
-		b.WriteString(renderEntry(h))
+		b.WriteString(wrap.Render(renderEntry(h)))
 		b.WriteByte('\n')
 	}
 	if m.streaming {
-		b.WriteString(botStyle.Render("bot: ") + m.stream)
+		b.WriteString(wrap.Render(botStyle.Render("bot: ") + m.stream))
 		b.WriteByte('\n')
 	}
 	if m.lastErr != "" {
-		b.WriteString(redStyle.Render("err: "+m.lastErr) + "\n")
+		b.WriteString(wrapErr.Render("err: " + m.lastErr))
+		b.WriteByte('\n')
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

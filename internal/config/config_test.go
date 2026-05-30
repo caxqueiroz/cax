@@ -184,11 +184,14 @@ func TestLoadExampleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(example.yaml): %v", err)
 	}
-	if len(cfg.Providers) != 1 {
-		t.Fatalf("providers = %d, want 1 (bedrock commented out by default)", len(cfg.Providers))
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("providers = %d, want 2 (openai enabled, bedrock disabled)", len(cfg.Providers))
 	}
-	if cfg.Providers[0].Name != "openai" {
-		t.Fatalf("primary provider = %q, want openai", cfg.Providers[0].Name)
+	if cfg.Providers[0].Name != "openai" || !cfg.Providers[0].IsEnabled() {
+		t.Fatalf("providers[0] = %+v, want enabled openai", cfg.Providers[0])
+	}
+	if cfg.Providers[1].Name != "bedrock" || cfg.Providers[1].IsEnabled() {
+		t.Fatalf("providers[1] = %+v, want disabled bedrock", cfg.Providers[1])
 	}
 	if cfg.Memory.TokenBudget != 8000 || cfg.Memory.RecallK != 5 {
 		t.Fatalf("memory defaults wrong: %+v", cfg.Memory)

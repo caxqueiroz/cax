@@ -138,14 +138,18 @@ func isRetryable(err error) bool {
 	return false
 }
 
-// BuildModel constructs each configured provider in order and wraps them in a
-// fallback chain. Provider order in config defines fallback priority.
+// BuildModel constructs each enabled provider in order and wraps them in a
+// fallback chain. Provider order in config defines fallback priority; entries
+// with `enabled: false` are skipped (unknown providers still error).
 func BuildModel(cfg *config.Config) (llm.StreamingLLM, error) {
 	if cfg == nil || len(cfg.Providers) == 0 {
 		return nil, fmt.Errorf("agent: at least one provider is required")
 	}
 	providers := make([]llm.StreamingLLM, 0, len(cfg.Providers))
 	for i, pc := range cfg.Providers {
+		if !pc.IsEnabled() {
+			continue
+		}
 		switch pc.Name {
 		case "bedrock":
 			providers = append(providers, bedrock.New(
@@ -163,6 +167,9 @@ func BuildModel(cfg *config.Config) (llm.StreamingLLM, error) {
 		default:
 			return nil, fmt.Errorf("agent: providers[%d]: unknown provider %q (want bedrock|openai)", i, pc.Name)
 		}
+	}
+	if len(providers) == 0 {
+		return nil, fmt.Errorf("agent: all providers are disabled; set enabled: true on at least one")
 	}
 	return &fallbackLLM{providers: providers}, nil
 }
