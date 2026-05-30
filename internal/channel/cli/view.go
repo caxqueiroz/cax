@@ -511,9 +511,10 @@ func (m model) View() string {
 		used++
 	}
 
-	// Welcome card is the permanent top banner (5 rows art + 2 border + 1
-	// trailing blank = 8). Always visible so the brand mark persists.
-	const welcomeRows = 5 + 2 + 1
+	// Welcome card is the permanent top banner: 6 rows art + 2 rows padding
+	// + 2 rows border + 1 row trailing blank = 11. Always visible so the
+	// brand mark persists.
+	const welcomeRows = 6 + 2 + 2 + 1
 	used += welcomeRows
 
 	convH := m.height - used

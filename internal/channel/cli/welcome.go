@@ -8,12 +8,13 @@ import (
 )
 
 // welcomeArt is the brand mark printed in the welcome card and by /about.
-// Five rows of figlet "graffiti"-style block letters spelling "cax".
-const welcomeArt = ` ____  ____ ___  _
-/   _\/  _ \\  \//
-|  /  | / \| \  /
-|  \__| |-|| /  \
-\____/\_/ \|/__/\\`
+// Six rows of double-line box-drawing block letters spelling "cax".
+const welcomeArt = `░█████╗░░█████╗░██╗░░██╗
+██╔══██╗██╔══██╗╚██╗██╔╝
+██║░░╚═╝███████║░╚███╔╝░
+██║░░██╗██╔══██║░██╔██╗░
+╚█████╔╝██║░░██║██╔╝╚██╗
+░╚════╝░╚═╝░░╚═╝╚═╝░░╚═╝`
 
 // Version is the binary's release tag. Override via
 // `go build -ldflags "-X github.com/caxqueiroz/cax/internal/channel/cli.Version=1.2.3"`.
@@ -38,14 +39,16 @@ func (m model) renderWelcomeBlock(width int) string {
 
 	// Info column has a blank row between greet and version so the two
 	// lines aren't crammed together. lipgloss.Center then pads above and
-	// below so they sit on the art's row-2 / row-4 (the 5-row art has its
-	// horizontal mid-line at row 3).
+	// below so the lines sit at the vertical mid-line of the 6-row art.
 	infoBlock := lipgloss.JoinVertical(lipgloss.Left, greet, "", version)
 	body := lipgloss.JoinHorizontal(lipgloss.Center, artStyled, "   ", infoBlock)
+	// Pad 1 row above and below the body so the art has breathing room
+	// inside the rounded "welcome" border.
+	padded := lipgloss.NewStyle().Padding(1, 0).Render(body)
 
 	inner := width - 4 // 2 indent + 2 border
 	if inner < 20 {
 		inner = 20
 	}
-	return borderWithTitle(body, "welcome", inner, borderColor())
+	return borderWithTitle(padded, "welcome", inner, borderColor())
 }

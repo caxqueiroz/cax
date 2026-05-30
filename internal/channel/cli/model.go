@@ -617,11 +617,12 @@ func (m *model) resizeInput() {
 	if m.input.Height() != h {
 		m.input.SetHeight(h)
 	}
-	// Layout: welcome(8) + blank(1) + conv + blank(1) + status(1) + blank(1)
-	// + message(h+2) + footer. footer = max(hint, dropdown), where hint = 1
-	// when terminal is tall enough, and dropdown = visible matches + 1
-	// (help text) when the slash menu is open.
-	fixed := 8 + 1 + 1 + 1 + 2 // welcome + blank + status + blank + msg-border
+	// Layout: welcome(11) + blank(1) + conv + blank(1) + status(1) + blank(1)
+	// + message(h+2) + footer. welcome = 6 art + 2 padding + 2 border + 1
+	// trailing blank. footer = max(hint, dropdown), where hint = 1 when
+	// terminal is tall enough, and dropdown = visible matches + 1 (help
+	// text) when the slash menu is open.
+	fixed := 11 + 1 + 1 + 1 + 2 // welcome + blank + status + blank + msg-border
 	footer := 0
 	if m.height >= minHintHeight {
 		footer = 1 // hint line baseline
