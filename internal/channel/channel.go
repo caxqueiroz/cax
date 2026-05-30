@@ -48,6 +48,28 @@ type Status struct {
 	ToolNames        []string
 	SubagentNames    []string
 	RunningSubagents []string
+
+	// Extensibility (Plans 6–9). Empty/zero until the relevant plan populates
+	// them; the channel package never needs to change again after this.
+	SkillCount     int
+	SkillNames     []string
+	MCPServerCount int
+	MCPServerNames []string
+	LSPServerCount int
+	LSPLanguages   []string
+	LSPServers     []LSPServerSummary
+	PluginCount    int
+	PluginNames    []string
+	HookCount      int
+}
+
+// LSPServerSummary is the per-server LSP detail surfaced via /lsp; it mirrors
+// internal/lsp.ServerInfo here to avoid an import cycle. Populated by Plan 8.
+type LSPServerSummary struct {
+	Name      string
+	Languages []string
+	Running   bool
+	LastError string
 }
 
 // UsageTotals is duplicated here as plain data to avoid a channel→memory import
