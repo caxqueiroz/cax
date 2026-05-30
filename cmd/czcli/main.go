@@ -194,6 +194,7 @@ func run() error {
 		cli.WithSessionID("cli"),
 		cli.WithScheduler(scheduleAdapter{store: store, sched: sched}),
 		cli.WithPlugins(pluginsAdp),
+		cli.WithCreator(creatorAdapter{writer: writer, reloader: reloader}),
 		cli.WithHookEntries(hookEntries),
 		cli.WithUserCommands(contrib.Commands),
 		cli.WithThemeStateFile(themeStatePath()),
@@ -660,6 +661,49 @@ func (r *assistantReloader) update(
 	r.lspTools = lspTools
 	r.lspInfos = lspInfos
 	r.hooksDisp = hooksDisp
+}
+
+// creatorAdapter satisfies cli.creatorBackend by delegating to the shared
+// Writer + Reloader the create_* FuncTools use. Both /new wizard finalizes
+// and natural-language create_* calls produce identical files this way and
+// share a single reload path. Overwrite is wired to false — the wizard
+// surfaces errors back to the user via the chat history.
+type creatorAdapter struct {
+	writer   creator.Writer
+	reloader creator.Reloader
+}
+
+func (a creatorAdapter) CreateSkill(ctx context.Context, name, desc, body string) (string, error) {
+	path, err := a.writer.WriteSkill(name, desc, body, false)
+	if err != nil {
+		return "", err
+	}
+	if err := a.reloader.Rebuild(ctx); err != nil {
+		return path, fmt.Errorf("wrote %s but reload failed: %w", path, err)
+	}
+	return path, nil
+}
+
+func (a creatorAdapter) CreateAgent(ctx context.Context, name, desc string, tools []string, body string) (string, error) {
+	path, err := a.writer.WriteAgent(name, desc, tools, nil, body, false)
+	if err != nil {
+		return "", err
+	}
+	if err := a.reloader.Rebuild(ctx); err != nil {
+		return path, fmt.Errorf("wrote %s but reload failed: %w", path, err)
+	}
+	return path, nil
+}
+
+func (a creatorAdapter) CreateCommand(ctx context.Context, name, desc, hint, body string) (string, error) {
+	path, err := a.writer.WriteCommand(name, desc, hint, body, false)
+	if err != nil {
+		return "", err
+	}
+	if err := a.reloader.Rebuild(ctx); err != nil {
+		return path, fmt.Errorf("wrote %s but reload failed: %w", path, err)
+	}
+	return path, nil
 }
 
 // creatorPaths resolves the three target directories under the user's HOME.
