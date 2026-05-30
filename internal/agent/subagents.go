@@ -6,17 +6,17 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
 	"github.com/deepnoodle-ai/dive/subagent"
 	"github.com/deepnoodle-ai/dive/toolkit/orchestration"
 )
 
-// augmentTools layers MCP tools and (when enabled) sub-agent tools onto the
-// assistant's tool set. The catalog merges the built-in personas
-// (GeneralPurpose, Explore, Plan) with any markdown definitions found via
-// FileLoader over cfg.Subagents.Dir.
+// augmentTools layers sub-agent tools onto the assistant's tool set. MCP
+// tools are now appended in Build before augmentTools runs (Plan 6 routed
+// mcp.Connect through cmd/czcli/main.go), and the catalog merges the
+// built-in personas (GeneralPurpose, Explore, Plan) with any markdown
+// definitions found via FileLoader over cfg.Subagents.Dir.
 //
 // dive v1.7.0 exposes sub-agents through the top-level subagent package
 // (a plain map[string]*Definition) plus toolkit/orchestration's Agent /
@@ -26,13 +26,6 @@ import (
 // the Agent tool so sub-agents cannot spawn). A shared *Runs tracker links
 // background spawns to TaskStop so the model can cancel them by task_id.
 func (a *Assistant) augmentTools(ctx context.Context, model llm.StreamingLLM) error {
-	// MCP tools (best-effort).
-	mcpTools, err := mcp.Connect(ctx, a.cfg.MCP)
-	if err != nil {
-		slog.Warn("mcp connect failed", "err", err)
-	}
-	a.tools = append(a.tools, mcpTools...)
-
 	if !a.cfg.Subagents.Enabled {
 		return nil
 	}

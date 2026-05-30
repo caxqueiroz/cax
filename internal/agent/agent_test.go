@@ -2,13 +2,18 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
+	"github.com/caxqueiroz/czcli/internal/skills"
+	"github.com/deepnoodle-ai/dive"
 )
 
 func buildTestAssistant(t *testing.T, reply string) (*Assistant, *scriptLLM) {
@@ -20,11 +25,151 @@ func buildTestAssistant(t *testing.T, reply string) (*Assistant, *scriptLLM) {
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true, BashEnabled: true, RequireConfirm: false},
 	}
-	a, err := Build(context.Background(), cfg, store, model)
+	a, err := Build(context.Background(), cfg, store, model, nil, nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	return a, model
+}
+
+// fakeMCPTool is a minimal dive.Tool used to assert MCP tools flow through Build.
+type fakeMCPTool struct {
+	name string
+}
+
+func (t *fakeMCPTool) Name() string                  { return t.name }
+func (t *fakeMCPTool) Description() string           { return "fake mcp tool" }
+func (t *fakeMCPTool) Schema() *dive.Schema          { return &dive.Schema{Type: "object"} }
+func (t *fakeMCPTool) Annotations() *dive.ToolAnnotations {
+	return nil
+}
+func (t *fakeMCPTool) Call(_ context.Context, _ any) (*dive.ToolResult, error) {
+	return dive.NewToolResultText("ok"), nil
+}
+
+func TestBuildAcceptsSkillsAndMCPTools(t *testing.T) {
+	store := newTestStore(t)
+	model := newScriptLLM("dummy")
+	cfg := &config.Config{
+		Persona: "czcli",
+		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
+		Tools:   config.ToolsConfig{FilesEnabled: true},
+	}
+
+	// Build a skills LoadResult from a temp dir with one SKILL.md.
+	sdir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(sdir, "ping"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sdir, "ping", "SKILL.md"),
+		[]byte("---\nname: ping\ndescription: Ping skill\n---\n# Ping\n"), 0o600); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	skillRes, err := skills.Load(config.SkillsConfig{Enabled: true, Dirs: []string{sdir}}, nil)
+	if err != nil {
+		t.Fatalf("skills.Load: %v", err)
+	}
+
+	mcpTool := &fakeMCPTool{name: "mcp_echo"}
+
+	a, err := Build(context.Background(), cfg, store, model, skillRes, []dive.Tool{mcpTool})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	st, err := a.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	gotTool := false
+	for _, n := range st.ToolNames {
+		if n == "mcp_echo" {
+			gotTool = true
+		}
+	}
+	if !gotTool {
+		t.Errorf("ToolNames = %v, want it to include mcp_echo", st.ToolNames)
+	}
+	if st.SkillCount != 1 || len(st.SkillNames) != 1 || st.SkillNames[0] != "ping" {
+		t.Errorf("Skill fields = (%d,%v), want (1,[ping])", st.SkillCount, st.SkillNames)
+	}
+	if st.MCPServerCount != 0 {
+		t.Errorf("MCPServerCount = %d, want 0 (no infos passed)", st.MCPServerCount)
+	}
+}
+
+func TestStatusReportsMCPServerNames(t *testing.T) {
+	store := newTestStore(t)
+	model := newScriptLLM("dummy")
+	cfg := &config.Config{
+		Persona: "czcli",
+		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
+		Tools:   config.ToolsConfig{FilesEnabled: true},
+	}
+	infos := []mcp.ServerInfo{
+		{Name: "git", Transport: "stdio", Connected: true, ToolCount: 3},
+		{Name: "github", Transport: "http", Connected: false, LastError: "auth"},
+	}
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	st, err := a.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.MCPServerCount != 2 {
+		t.Errorf("MCPServerCount = %d, want 2", st.MCPServerCount)
+	}
+	wantNames := map[string]bool{"git": true, "github": true}
+	for _, n := range st.MCPServerNames {
+		delete(wantNames, n)
+	}
+	if len(wantNames) != 0 {
+		t.Errorf("MCPServerNames missing %v (got %v)", wantNames, st.MCPServerNames)
+	}
+}
+
+func TestRebuildSwapsTools(t *testing.T) {
+	store := newTestStore(t)
+	model := newScriptLLM("dummy")
+	cfg := &config.Config{
+		Persona: "czcli",
+		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
+		Tools:   config.ToolsConfig{FilesEnabled: true},
+	}
+	a, err := Build(context.Background(), cfg, store, model, nil, []dive.Tool{&fakeMCPTool{name: "old_tool"}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	st1, _ := a.Status(context.Background())
+	hasOld := false
+	for _, n := range st1.ToolNames {
+		if n == "old_tool" {
+			hasOld = true
+		}
+	}
+	if !hasOld {
+		t.Fatalf("expected old_tool in initial status: %v", st1.ToolNames)
+	}
+	if err := a.Rebuild(context.Background(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil); err != nil {
+		t.Fatalf("Rebuild: %v", err)
+	}
+	st2, _ := a.Status(context.Background())
+	hasNew, hasOld2 := false, false
+	for _, n := range st2.ToolNames {
+		if n == "new_tool" {
+			hasNew = true
+		}
+		if n == "old_tool" {
+			hasOld2 = true
+		}
+	}
+	if !hasNew {
+		t.Errorf("Rebuild dropped new_tool: %v", st2.ToolNames)
+	}
+	if hasOld2 {
+		t.Errorf("Rebuild did not drop old_tool: %v", st2.ToolNames)
+	}
 }
 
 func TestBuild_AssemblesAgentWithTools(t *testing.T) {

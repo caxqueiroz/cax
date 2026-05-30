@@ -14,7 +14,9 @@ import (
 
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/mcp"
 	"github.com/caxqueiroz/czcli/internal/memory"
+	"github.com/caxqueiroz/czcli/internal/skills"
 	"github.com/caxqueiroz/czcli/internal/tools"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
@@ -26,26 +28,54 @@ var (
 )
 
 // Assistant wraps a configured dive.Agent plus the dependencies needed to run
-// turns, report status, and summarize memory.
+// turns, report status, and summarize memory. The inner *dive.Agent is
+// swappable via Rebuild under buildMu so hot-reload survives in-flight turns.
 type Assistant struct {
-	agent *dive.Agent
 	store *memory.Store
 	model llm.StreamingLLM
 	cfg   *config.Config
-	tools []dive.Tool
 
-	subagentNames []string
+	buildMu        sync.RWMutex
+	agent          *dive.Agent
+	tools          []dive.Tool
+	skillRes       *skills.LoadResult
+	subagentNames  []string
+	mcpServerNames []string
 
 	mu      sync.Mutex
 	running map[string]int // running sub-agent task descriptions -> ref count
 }
 
-// Build assembles the dive.Agent: model (from BuildModel), tools (tools.Registry
-// plus optional sub-agent tools and MCP tools), and the memory hooks
-// (PreGeneration / PreToolUse / PostGeneration). We do NOT use dive.Session; the
-// agent is stateless per call and czcli owns history in memory.Store, carrying
-// session_id / user_input through HookContext.Values.
-func Build(ctx context.Context, cfg *config.Config, store *memory.Store, model llm.StreamingLLM) (*Assistant, error) {
+// Build assembles the dive.Agent with skills registered as a dive.Extension
+// (v1.7 wires skill.Loader through AgentOptions.Extensions), MCP tools, and
+// the existing memory hooks. Plan 6 introduces the skills + mcpTools params;
+// Plans 7–9 extend this further with plugin contributions, LSP tools, and
+// the hook dispatcher.
+//
+// Callers that already have MCP ServerInfos should prefer BuildWithMCPInfos.
+func Build(
+	ctx context.Context,
+	cfg *config.Config,
+	store *memory.Store,
+	model llm.StreamingLLM,
+	skillRes *skills.LoadResult,
+	mcpTools []dive.Tool,
+) (*Assistant, error) {
+	return BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, nil)
+}
+
+// BuildWithMCPInfos is Build plus the MCP ServerInfos so Status can render
+// server names without re-querying the manager. cmd/czcli/main.go uses this
+// from Task 9; Plans 7+ also use it for plugin-contributed MCP servers.
+func BuildWithMCPInfos(
+	ctx context.Context,
+	cfg *config.Config,
+	store *memory.Store,
+	model llm.StreamingLLM,
+	skillRes *skills.LoadResult,
+	mcpTools []dive.Tool,
+	mcpInfos []mcp.ServerInfo,
+) (*Assistant, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("agent: nil config")
 	}
@@ -59,15 +89,19 @@ func Build(ctx context.Context, cfg *config.Config, store *memory.Store, model l
 	}
 
 	a := &Assistant{
-		store:   store,
-		model:   model,
-		cfg:     cfg,
-		tools:   builtins,
-		running: make(map[string]int),
+		store:    store,
+		model:    model,
+		cfg:      cfg,
+		tools:    builtins,
+		skillRes: skillRes,
+		running:  make(map[string]int),
 	}
 
-	// Sub-agents + MCP are layered in by augmentTools (subagents.go). It is a
-	// no-op when both are disabled.
+	// MCP tools come from cmd/czcli/main.go via mcp.Connect; mcp.Connect is
+	// no longer called inside augmentTools.
+	a.tools = append(a.tools, mcpTools...)
+
+	// Sub-agents stay inside augmentTools but no longer reach into mcp.
 	if err := a.augmentTools(ctx, model); err != nil {
 		return nil, fmt.Errorf("agent: augment tools: %w", err)
 	}
@@ -80,7 +114,7 @@ func Build(ctx context.Context, cfg *config.Config, store *memory.Store, model l
 		summarizerFn: func() memory.Summarizer { return a.Summarizer() },
 	}
 
-	diveAgent, err := dive.NewAgent(dive.AgentOptions{
+	opts := dive.AgentOptions{
 		Name:         "czcli",
 		SystemPrompt: cfg.Persona,
 		Model:        model,
@@ -90,12 +124,48 @@ func Build(ctx context.Context, cfg *config.Config, store *memory.Store, model l
 			PreToolUse:     []dive.PreToolUseHook{deps.preToolUse},
 			PostGeneration: []dive.PostGenerationHook{deps.postGeneration},
 		},
-	})
+	}
+	if skillRes != nil && skillRes.Loader != nil {
+		opts.Extensions = append(opts.Extensions, skillRes.Loader)
+	}
+
+	diveAgent, err := dive.NewAgent(opts)
 	if err != nil {
 		return nil, fmt.Errorf("agent: new dive agent: %w", err)
 	}
 	a.agent = diveAgent
+
+	names := make([]string, 0, len(mcpInfos))
+	for _, info := range mcpInfos {
+		names = append(names, info.Name)
+	}
+	a.mcpServerNames = names
 	return a, nil
+}
+
+// Rebuild swaps the inner *dive.Agent atomically. In-flight turns finish
+// under the existing agent; the next turn picks up the new one. Plans 7–9
+// call this after /plugin install|enable|disable mutations.
+func (a *Assistant) Rebuild(
+	ctx context.Context,
+	cfg *config.Config,
+	skillRes *skills.LoadResult,
+	mcpTools []dive.Tool,
+	mcpInfos []mcp.ServerInfo,
+) error {
+	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos)
+	if err != nil {
+		return fmt.Errorf("agent: rebuild: %w", err)
+	}
+	a.buildMu.Lock()
+	a.agent = next.agent
+	a.tools = next.tools
+	a.skillRes = next.skillRes
+	a.subagentNames = next.subagentNames
+	a.mcpServerNames = next.mcpServerNames
+	a.cfg = cfg
+	a.buildMu.Unlock()
+	return nil
 }
 
 // subagentToolName is the tool the orchestration package exposes for spawning
@@ -143,7 +213,11 @@ func (a *Assistant) Handle(ctx context.Context, msg channel.Message, emit channe
 		return nil
 	}
 
-	resp, err := a.agent.CreateResponse(ctx,
+	a.buildMu.RLock()
+	diveAgent := a.agent
+	a.buildMu.RUnlock()
+
+	resp, err := diveAgent.CreateResponse(ctx,
 		dive.WithInput(msg.Text),
 		dive.WithValue("session_id", msg.SessionID),
 		dive.WithValue("user_input", msg.Text),
@@ -187,14 +261,22 @@ func (a *Assistant) runningSubagents() []string {
 }
 
 // Status is a channel.StatusFunc: it composes current model/fallback state with
-// memory stats and usage and the set of available tools and sub-agents.
+// memory stats and usage and the set of available tools and sub-agents, plus
+// Plan-6 skill/MCP fields.
 func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
+	a.buildMu.RLock()
+	tools := a.tools
+	skillRes := a.skillRes
+	subagentNames := a.subagentNames
+	mcpServerNames := a.mcpServerNames
+	a.buildMu.RUnlock()
+
 	st := channel.Status{
 		Provider:         a.model.Name(),
 		Model:            a.model.Name(),
 		ContextBudget:    a.cfg.Memory.TokenBudget,
-		ToolNames:        a.toolNames(),
-		SubagentNames:    a.subagentNames,
+		ToolNames:        toolNamesOf(tools),
+		SubagentNames:    subagentNames,
 		RunningSubagents: a.runningSubagents(),
 	}
 	if st.ContextBudget == 0 {
@@ -208,6 +290,15 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 		st.Provider = name
 		st.FallbackIndex = idx
 		st.OnFallback = idx > 0
+	}
+
+	if skillRes != nil {
+		st.SkillCount = len(skillRes.Names)
+		st.SkillNames = append([]string(nil), skillRes.Names...)
+	}
+	if len(mcpServerNames) > 0 {
+		st.MCPServerCount = len(mcpServerNames)
+		st.MCPServerNames = append([]string(nil), mcpServerNames...)
 	}
 
 	if stats, err := a.store.Stats(ctx); err == nil {
@@ -225,9 +316,10 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 	return st, nil
 }
 
-func (a *Assistant) toolNames() []string {
-	names := make([]string, 0, len(a.tools))
-	for _, tl := range a.tools {
+// toolNamesOf returns the names of the given tools in registry order.
+func toolNamesOf(tools []dive.Tool) []string {
+	names := make([]string, 0, len(tools))
+	for _, tl := range tools {
 		names = append(names, tl.Name())
 	}
 	return names
