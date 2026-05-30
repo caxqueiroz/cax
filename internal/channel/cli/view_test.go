@@ -113,7 +113,7 @@ func TestDisplayCWD(t *testing.T) {
 	}{
 		{"", "?", 24},
 		{"/Users/x", "~", 24},
-		{"/Users/x/dev/czcli", "~/dev/czcli", 24},
+		{"/Users/x/dev/cax", "~/dev/cax", 24},
 		{"/tmp/nested/dir/that/is/quite/long", "…re/nested/dir/that/is/quite/long"[:24], 24},
 	}
 	for _, c := range cases {
