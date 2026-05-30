@@ -43,6 +43,19 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	// Redirect every slog.* call to ~/.cax/cax.log so background events
+	// (scheduler started, recall failed, etc.) no longer leak into the
+	// alt-screen and clobber the TUI. Errors opening the log fall back to
+	// stderr, which is the current behaviour anyway.
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		dir := filepath.Join(home, ".cax")
+		if err := os.MkdirAll(dir, 0o700); err == nil {
+			if f, err := os.OpenFile(filepath.Join(dir, "cax.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+				slog.SetDefault(slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})))
+			}
+		}
+	}
+
 	path, isDefault := resolveConfigPath()
 	created, err := ensureDefaultConfig(path, isDefault)
 	if err != nil {
@@ -205,6 +218,7 @@ func run() error {
 		cli.WithUserCommands(contrib.Commands),
 		cli.WithThemeStateFile(themeStatePath()),
 		cli.WithPermDialog(permDialog),
+		cli.WithShowStreaming(cfg.CLI.StreamingEnabled()),
 	)
 	statusFn := func(ctx context.Context) (channel.Status, error) {
 		st, err := assistant.Status(ctx)

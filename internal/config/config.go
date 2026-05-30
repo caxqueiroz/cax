@@ -34,6 +34,20 @@ type Config struct {
 // default-{dark,light}.
 type CLIConfig struct {
 	Theme string `yaml:"theme"`
+	// ShowStreaming controls whether incremental assistant text appears in
+	// the conversation as it streams. When false (recommended for quieter
+	// sessions) you see only the spinner during the turn and the full reply
+	// lands at once on completion. Defaults to true to match prior behaviour.
+	ShowStreaming *bool `yaml:"show_streaming,omitempty"`
+}
+
+// StreamingEnabled returns the resolved show_streaming value. Defaults true
+// when not configured.
+func (c CLIConfig) StreamingEnabled() bool {
+	if c.ShowStreaming == nil {
+		return true
+	}
+	return *c.ShowStreaming
 }
 
 // ProviderConfig configures one LLM provider in fallback order.

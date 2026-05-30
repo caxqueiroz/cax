@@ -30,6 +30,7 @@ type CLI struct {
 	userCommands   []plugins.PluginCommand
 	themeStateFile string
 	permDialog     *PermDialog // optional; nil disables the TUI permission modal
+	showStreaming  *bool       // optional override; nil leaves the model's default (true)
 }
 
 // Option configures a CLI.
@@ -83,6 +84,12 @@ func WithThemeStateFile(path string) Option {
 	return func(c *CLI) { c.themeStateFile = path }
 }
 
+// WithShowStreaming controls whether streamed assistant text is rendered as
+// it arrives (true, default) or held until the turn completes (false).
+func WithShowStreaming(on bool) Option {
+	return func(c *CLI) { c.showStreaming = &on }
+}
+
 // WithPermDialog wires the TUI permission modal. cli.Start will install the
 // program's Send fn so the dialog's Show() can push a permRequestMsg into
 // the model. When unset the agent uses the legacy stdin/stdout prompt.
@@ -120,6 +127,9 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	m.userCommands = c.userCommands
 	m.themeStateFile = c.themeStateFile
 	m.permDialog = c.permDialog
+	if c.showStreaming != nil {
+		m.showStreaming = *c.showStreaming
+	}
 	pm := &programModel{
 		model:  m,
 		cli:    c,

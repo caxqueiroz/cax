@@ -176,6 +176,11 @@ type model struct {
 	// site picks it up after handleCommand returns and clears the field.
 	pendingExec tea.Cmd
 
+	// showStreaming mirrors cli.show_streaming in config. When false the
+	// model discards streamDeltaMsg events; the spinner stays up and the
+	// full reply lands at once on turnDoneMsg.
+	showStreaming bool
+
 	// sessionStart is set in newModel and used by the status row's `up N`
 	// timer. turnStart is the wall clock at submit; turnDone computes the
 	// turn duration as time.Since(turnStart).
@@ -249,12 +254,13 @@ func newModel(width, height int) model {
 	vp := viewport.New(vpW, vpH)
 
 	return model{
-		width:        width,
-		height:       height,
-		input:        ta,
-		viewport:     vp,
-		spinner:      sp,
-		sessionStart: time.Now(),
+		width:         width,
+		height:        height,
+		input:         ta,
+		viewport:      vp,
+		spinner:       sp,
+		sessionStart:  time.Now(),
+		showStreaming: true, // overridden by cli.WithShowStreaming if config sets it
 	}
 }
 
@@ -399,6 +405,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case streamDeltaMsg:
+		// When streaming is disabled (cli.show_streaming: false), drop the
+		// delta on the floor — the spinner keeps animating; the full reply
+		// arrives on turnDoneMsg and lands in one shot.
+		if !m.showStreaming {
+			return m, nil
+		}
 		m.stream += msg.text
 		m.refreshViewport()
 		return m, nil
