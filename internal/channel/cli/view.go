@@ -409,6 +409,15 @@ func (m model) renderConversation() string {
 				b.WriteByte('\n')
 				b.WriteString(s.dim.Render("  · took " + humanizeDuration(h.duration, true)))
 			}
+			// Turn-closing rule so the next ❯ is visually separated from
+			// long replies. Width is the viewport inner width so the rule
+			// spans the whole conversation pane.
+			b.WriteByte('\n')
+			ruleW := innerWidth - 2
+			if ruleW < 4 {
+				ruleW = 4
+			}
+			b.WriteString(s.dim.Render("  " + strings.Repeat("─", ruleW)))
 		default:
 			b.WriteString(wrap.Render(s.sys.Render(h.text)))
 		}
@@ -484,32 +493,21 @@ func (m model) View() string {
 		used++
 	}
 
-	// Welcome card replaces the old branded header: art + tagline + hint
-	// inside a labeled rounded box. Shown on a fresh session (no history,
-	// not streaming). Art is 5 rows + 2 border + 1 trailing blank = 8.
-	showWelcome := len(m.history) == 0 && !m.streaming
+	// Welcome card is the permanent top banner (5 rows art + 2 border + 1
+	// trailing blank = 8). Always visible so the brand mark persists.
 	const welcomeRows = 5 + 2 + 1
-	if showWelcome {
-		used += welcomeRows
-	}
+	used += welcomeRows
 
 	convH := m.height - used
 	if convH < 4 {
 		convH = 4
 	}
 	conv := m.renderConversationBox(width, convH)
+	welcome := m.renderWelcomeBlock(width)
 
-	parts := []string{conv, "", status, "", message}
+	parts := []string{welcome, "", conv, "", status, "", message}
 	if hint != "" {
 		parts = append(parts, hint)
-	}
-
-	if showWelcome {
-		welcome := m.renderWelcomeBlock(width)
-		parts = []string{welcome, "", conv, "", status, "", message}
-		if hint != "" {
-			parts = append(parts, hint)
-		}
 	}
 
 	// Slash-command dropdown: inserted between status and message box when

@@ -566,13 +566,9 @@ func (m *model) resizeInput() {
 	if m.height >= minHintHeight {
 		fixed++ // hint line
 	}
-	// Welcome card (5 art + 2 border + 1 trailing blank = 8) sits above the
-	// conv box on a fresh session and must be subtracted, otherwise the
-	// viewport is sized larger than its containing box and the layout
-	// overflows on resize.
-	if len(m.history) == 0 && !m.streaming {
-		fixed += 8
-	}
+	// Welcome card is now the permanent top banner: 5 art + 2 border + 1
+	// trailing blank = 8 rows always reserved.
+	fixed += 8
 	// Completion dropdown (up to 6 rows + 2 border = 8) sits above the message
 	// box while the user is typing a slash command.
 	if vis := len(m.completion.matches); vis > 0 {
