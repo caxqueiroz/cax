@@ -24,7 +24,9 @@ var Version = "dev"
 // vertically alongside the art.
 func (m model) renderWelcomeBlock(width int) string {
 	s := styles()
-	artStyled := s.accent.Render(welcomeArt)
+	// Art rendered in bright white regardless of theme accent — matches the
+	// "fill it up" look of figlet output on a bare terminal.
+	artStyled := lipgloss.NewStyle().Foreground(lipgloss.Color("231")).Bold(true).Render(welcomeArt)
 
 	uname := "you"
 	if u, err := user.Current(); err == nil && u.Username != "" {
