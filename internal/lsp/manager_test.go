@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/caxqueiroz/czcli/internal/config"
+	"github.com/caxqueiroz/czcli/internal/config"
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
+	"go.lsp.dev/uri"
 )
 
 // fakeServer is the test-side of an in-process LSP connection. It uses
@@ -32,13 +33,11 @@ func newFakeServer(t *testing.T, handler jsonrpc2.Handler) *fakeServer {
 	serverConn := jsonrpc2.NewConn(jsonrpc2.NewStream(b))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	// The fake (server side) handles requests from the manager.
+	// The fake (server side) handles requests from the manager. The manager
+	// itself owns the Go call on the client side (notifyHandler) so we MUST
+	// NOT pre-call clientConn.Go here — Conn.Go starts exactly one read
+	// goroutine and double-starting causes done-channel close panics.
 	serverConn.Go(ctx, handler)
-	// The client side needs *some* handler to drain server-initiated
-	// notifications; tests override this when they want to capture them.
-	clientConn.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, _ jsonrpc2.Request) error {
-		return reply(ctx, nil, nil)
-	})
 
 	t.Cleanup(func() {
 		cancel()
@@ -59,18 +58,82 @@ func TestFakeServerInitializeRoundTrip(t *testing.T) {
 	}
 	fs := newFakeServer(t, handler)
 
+	// This standalone test calls clientConn.Call directly (no Manager), so we
+	// must spin the client's read loop here. The Manager's tests don't need
+	// this because bringUp installs the notifyHandler via conn.Go(ctx, ...).
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
+	fs.clientConn.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, _ jsonrpc2.Request) error {
+		return reply(ctx, nil, nil)
+	})
 
 	var result protocol.InitializeResult
 	if _, err := fs.clientConn.Call(ctx, protocol.MethodInitialize, &protocol.InitializeParams{
-		RootURI: "file:///",
+		RootURI: uri.File("/"),
 	}, &result); err != nil {
 		t.Fatalf("Call initialize: %v", err)
 	}
 	// Cover encoding compatibility: serializing the params must round-trip cleanly.
 	if _, err := json.Marshal(&protocol.InitializeParams{}); err != nil {
 		t.Fatalf("Marshal InitializeParams: %v", err)
+	}
+}
+
+func TestNewSpawnAndHandshake(t *testing.T) {
+	gotInitialize := make(chan *protocol.InitializeParams, 1)
+	gotInitialized := make(chan struct{}, 1)
+
+	handler := func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+		switch req.Method() {
+		case protocol.MethodInitialize:
+			var p protocol.InitializeParams
+			_ = json.Unmarshal(req.Params(), &p)
+			gotInitialize <- &p
+			return reply(ctx, &protocol.InitializeResult{}, nil)
+		case protocol.MethodInitialized:
+			gotInitialized <- struct{}{}
+			return reply(ctx, nil, nil)
+		}
+		return reply(ctx, nil, nil)
+	}
+	fs := newFakeServer(t, handler)
+
+	m := &Manager{
+		rootDir: t.TempDir(),
+		servers: map[string]*server{},
+		dialFn: func(_ context.Context, _ config.LSPServerConfig) (jsonrpc2.Conn, func() error, error) {
+			return fs.clientConn, func() error { return nil }, nil
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	infos, err := m.bringUp(ctx, []config.LSPServerConfig{{
+		Name:      "fakegopls",
+		Command:   "/does/not/matter",
+		Languages: []string{"go"},
+	}})
+	if err != nil {
+		t.Fatalf("bringUp: %v", err)
+	}
+	if len(infos) != 1 || infos[0].Name != "fakegopls" || !infos[0].Running || infos[0].LastError != "" {
+		t.Fatalf("unexpected infos: %+v", infos)
+	}
+	if _, ok := m.servers["go"]; !ok {
+		t.Fatal("language 'go' not registered")
+	}
+	select {
+	case p := <-gotInitialize:
+		if len(p.WorkspaceFolders) == 0 {
+			t.Fatal("InitializeParams.WorkspaceFolders empty")
+		}
+	case <-ctx.Done():
+		t.Fatal("initialize not received")
+	}
+	select {
+	case <-gotInitialized:
+	case <-ctx.Done():
+		t.Fatal("initialized not received")
 	}
 }
 
