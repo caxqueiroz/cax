@@ -8,13 +8,12 @@ import (
 )
 
 // welcomeArt is the brand mark printed in the welcome card and by /about.
-// Five rows of solid block letters spelling "cax" — drawn with U+2588 FULL
-// BLOCK so the letters read as filled glyphs rather than outlines.
-const welcomeArt = `█████   ███   █   █
-█      █   █   █ █
-█      █████    █
-█      █   █   █ █
-█████  █   █  █   █`
+// Five rows of figlet "graffiti"-style block letters spelling "cax".
+const welcomeArt = ` ____  ____ ___  _
+/   _\/  _ \\  \//
+|  /  | / \| \  /
+|  \__| |-|| /  \
+\____/\_/ \|/__/\\`
 
 // Version is the binary's release tag. Override via
 // `go build -ldflags "-X github.com/caxqueiroz/cax/internal/channel/cli.Version=1.2.3"`.
