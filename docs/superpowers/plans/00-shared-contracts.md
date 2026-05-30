@@ -116,10 +116,12 @@ type MCPConfig struct {
 }
 
 type MCPServerConfig struct {
-	Name    string   `yaml:"name"`
-	Command string   `yaml:"command"`
-	Args    []string `yaml:"args"`
-	URL     string   `yaml:"url"`
+	Name    string            `yaml:"name"`
+	Command string            `yaml:"command"`
+	Args    []string          `yaml:"args"`
+	URL     string            `yaml:"url"`
+	Env     map[string]string `yaml:"env,omitempty"`     // stdio env vars; also lets plugin .mcp.json env pass through
+	Headers map[string]string `yaml:"headers,omitempty"` // HTTP headers; also lets plugin .mcp.json headers pass through
 }
 
 type ScheduleConfig struct {
