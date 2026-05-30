@@ -33,7 +33,7 @@ func TestTopBarShowsModelAndGauge(t *testing.T) {
 	m.status = statusFixture()
 	m.hasStatus = true
 	bar := m.renderTopBar()
-	for _, want := range []string{"claude-opus", "ctx", "8k", "76%"} {
+	for _, want := range []string{"claude-opus", "hist", "8k", "76%"} {
 		if !strings.Contains(bar, want) {
 			t.Errorf("top bar missing %q\n%s", want, bar)
 		}

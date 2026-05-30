@@ -50,7 +50,9 @@ func (m model) renderTopBar() string {
 	return barStyle.Width(m.width).Render(line)
 }
 
-// renderGauge: "ctx 6.1k/8k ▓▓▓░ 76% [⚠]" with threshold coloring.
+// renderGauge: "hist 6.1k/8k ▓▓▓░ 76% [⚠]" with threshold coloring. This is
+// the in-memory history budget that triggers summarization — NOT the model's
+// context window. Labeled "hist" so it's not confused with the latter.
 func (m model) renderGauge(tokens, budget int) string {
 	pct := 0.0
 	if budget > 0 {
@@ -77,7 +79,7 @@ func (m model) renderGauge(tokens, budget int) string {
 	}
 
 	pctStr := fmt.Sprintf("%d%%", int(pct*100))
-	return fmt.Sprintf("ctx %s/%s %s %s%s",
+	return fmt.Sprintf("hist %s/%s %s %s%s",
 		humanizeTokensTenths(tokens),
 		humanizeTokensTenths(budget),
 		style.Render(bar),
