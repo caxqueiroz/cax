@@ -88,8 +88,8 @@ type ToolsConfig struct {
 // one-shot slog.Warn is emitted via warnLegacySubagentsDir.
 type SubagentsConfig struct {
 	Enabled bool     `yaml:"enabled"`
-	Dirs    []string `yaml:"dirs"`           // default: [~/.czcli/agents, .czcli/agents]
-	Dir     string   `yaml:"dir,omitempty"`  // DEPRECATED: legacy singular; migrated into Dirs at Load time.
+	Dirs    []string `yaml:"dirs"`          // default: [~/.czcli/agents, .czcli/agents]
+	Dir     string   `yaml:"dir,omitempty"` // DEPRECATED: legacy singular; migrated into Dirs at Load time.
 }
 
 // CommandsConfig configures user-level slash-command discovery (Plan 11).

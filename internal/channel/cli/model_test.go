@@ -169,7 +169,7 @@ func TestCtrlTCyclesTheme(t *testing.T) {
 
 	m := newModel(80, 24)
 	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlT})
+	_ = update(m, tea.KeyMsg{Type: tea.KeyCtrlT})
 	after := theme.Active()
 	if len(theme.List()) > 1 && before != nil && after != nil && before.Name == after.Name {
 		t.Fatalf("Ctrl+T did not change theme (still %q with %d themes registered)", before.Name, len(theme.List()))
