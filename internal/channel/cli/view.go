@@ -423,17 +423,37 @@ func (m model) renderConversation() string {
 		}
 	}
 	if m.streaming {
-		elapsed := ""
-		if !m.turnStart.IsZero() {
-			elapsed = " " + humanizeDuration(time.Since(m.turnStart), false)
+		// Status line: "✽ Shimmying… 13s · ↓ 698 tokens".
+		// Spinner glyph in accent (pulses); gerund in foreground; meta in dim.
+		gerund := m.turnGerund
+		if gerund == "" {
+			gerund = "Working"
 		}
-		if m.stream == "" {
-			b.WriteString(s.dim.Render(m.spinner.View() + " working…" + elapsed))
-		} else {
-			b.WriteString(wrap.Render(m.stream))
-			if elapsed != "" {
-				b.WriteString(s.dim.Render(elapsed))
+		spinnerGlyph := s.accent.Render(m.spinner.View())
+		gerundPart := s.fg.Bold(true).Render(gerund + "…")
+		meta := ""
+		if !m.turnStart.IsZero() {
+			meta = humanizeDuration(time.Since(m.turnStart), false)
+		}
+		tok := estimateTokens(m.stream)
+		if tok > 0 {
+			if meta != "" {
+				meta += " · "
 			}
+			meta += fmt.Sprintf("↓ %d tokens", tok)
+		}
+		if meta != "" {
+			meta = s.dim.Render(" " + meta)
+		}
+		statusLine := spinnerGlyph + " " + gerundPart + meta
+		if m.stream == "" {
+			b.WriteString(statusLine)
+		} else {
+			// Once tokens start arriving, render them in flow above the
+			// status line so the user can read the answer as it grows.
+			b.WriteString(wrap.Render(m.stream))
+			b.WriteByte('\n')
+			b.WriteString(statusLine)
 		}
 		b.WriteByte('\n')
 	}

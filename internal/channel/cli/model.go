@@ -163,6 +163,11 @@ type model struct {
 	sessionStart time.Time
 	turnStart    time.Time
 
+	// turnGerund is the playful action label rendered on the spinner line
+	// during a turn (e.g. "Shimmying"). Picked at submit time so it stays
+	// stable for the whole turn instead of jittering each spinner tick.
+	turnGerund string
+
 	// hookEntries is the typed snapshot of plugin-declared hooks the /hooks
 	// command renders. Populated via WithHookEntries on CLI start; nil when
 	// no plugin contributes hooks. Status.HookCount remains the source of
@@ -205,7 +210,12 @@ func newModel(width, height int) model {
 	_ = ta.Focus()
 
 	sp := spinner.New()
-	sp.Spinner = spinner.Dot
+	// Custom shimmer glyphs (✶✷…✿) so the spinner reads as a small twinkling
+	// asterisk — pairs with the "Shimmying…" gerund line.
+	sp.Spinner = spinner.Spinner{
+		Frames: []string{"✶", "✷", "✸", "✹", "✺", "✻", "✼", "✽", "✾", "✿", "✾", "✽", "✼", "✻", "✺", "✹", "✸", "✷"},
+		FPS:    time.Second / 10,
+	}
 	// Spinner color is a static "always dim" — the themed bag is per-render
 	// but spinner.Tick captures Style at scheduling time, so we use a fixed
 	// approximation rather than the active theme's Dim.
@@ -475,6 +485,7 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	m.stream = ""
 	m.lastErr = ""
 	m.turnStart = time.Now()
+	m.turnGerund = pickGerund()
 	if wasEmpty {
 		// Welcome card just disappeared — recompute viewport so the conv box
 		// can claim the freed rows on the very next render.
