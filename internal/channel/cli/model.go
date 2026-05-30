@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -13,6 +15,8 @@ import (
 	"github.com/caxqueiroz/czcli/internal/channel"
 	"github.com/caxqueiroz/czcli/internal/config"
 	"github.com/caxqueiroz/czcli/internal/hooks"
+	"github.com/caxqueiroz/czcli/internal/plugins"
+	"github.com/caxqueiroz/czcli/internal/theme"
 )
 
 // scheduleBackend is the store-backed CRUD surface the /schedule command drives.
@@ -102,7 +106,7 @@ type model struct {
 	width  int
 	height int
 
-	input    textinput.Model
+	input    textarea.Model
 	viewport viewport.Model
 	spinner  spinner.Model
 
@@ -124,19 +128,40 @@ type model struct {
 	// truth for the bottom-bar counter.
 	hookEntries []hooks.Entry
 
+	// userCommands is the merged user+plugin command snapshot used by the
+	// /help overlay listing. The dispatcher itself routes through the
+	// existing handleCommand switch; this slice is rendering-only.
+	userCommands []plugins.PluginCommand
+
+	// themeStateFile is the path Ctrl+T persists the active theme to. Empty
+	// disables persistence (Ctrl+T still cycles in-memory).
+	themeStateFile string
+
+	// helpOpen toggles the keybindings/commands overlay (Ctrl+/).
+	helpOpen bool
+
 	ready bool // viewport sized at least once
 }
 
 func newModel(width, height int) model {
-	ti := textinput.New()
-	ti.Prompt = "❯ "
-	ti.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks"
-	ti.CharLimit = 4000
-	// Focus before the textinput is copied into the model value. Calling
+	ta := textarea.New()
+	ta.Prompt = "❯ "
+	ta.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /reload"
+	ta.CharLimit = 4000
+	ta.ShowLineNumbers = false
+	// Disable Enter→newline so Enter falls through to model.Update's explicit
+	// KeyEnter arm (which calls m.submit). Newline insertion is done by the
+	// model when it sees Alt+Enter. ctrl+m is the carriage-return alias
+	// bubbles bundles with Enter; we clear both at once by passing no keys.
+	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys())
+	ta.SetWidth(max(1, width-2))
+	ta.SetHeight(1)
+	ta.MaxHeight = 6
+	// Focus before the textarea is copied into the model value. Calling
 	// Focus() inside a value-receiver Init() mutates only the local copy and
-	// leaves the real input unfocused — which causes bubbles' textinput to
+	// leaves the real input unfocused — which causes bubbles' textarea to
 	// drop every character key.
-	_ = ti.Focus()
+	_ = ta.Focus()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
@@ -145,20 +170,20 @@ func newModel(width, height int) model {
 	// approximation rather than the active theme's Dim.
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 
-	vp := viewport.New(width, max(1, height-6))
+	vp := viewport.New(width, max(1, height-7))
 
 	return model{
 		width:    width,
 		height:   height,
-		input:    ti,
+		input:    ta,
 		viewport: vp,
 		spinner:  sp,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	// textinput is already focused by newModel; start the cursor blink.
-	return textinput.Blink
+	// textarea is already focused by newModel; start the cursor blink.
+	return textarea.Blink
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -169,18 +194,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.viewport.Width = msg.Width
-		// Layout: top(1)+sep(1)+viewport+sep(1)+bottom(1)+sep(1)+pad(1)+input(1) = 7+viewport.
-		m.viewport.Height = max(1, msg.Height-7)
-		m.input.Width = max(1, msg.Width-2)
+		m.input.SetWidth(max(1, msg.Width-2))
+		m.resizeInput()
 		m.ready = true
 		m.refreshViewport()
 		return m, nil
 
 	case tea.KeyMsg:
+		// Help overlay (Ctrl+/). Most terminals emit Ctrl+/ as KeyCtrlUnderscore.
+		if msg.Type == tea.KeyCtrlUnderscore {
+			m.helpOpen = !m.helpOpen
+			m.refreshViewport()
+			return m, nil
+		}
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
+		case tea.KeyCtrlL:
+			out, _ := m.handleCommand("/model")
+			if out != "" {
+				m.history = append(m.history, historyEntry{who: "sys", text: out})
+				m.refreshViewport()
+			}
+			return m, nil
+		case tea.KeyCtrlR:
+			out, _ := m.handleCommand("/reload")
+			if out != "" {
+				m.history = append(m.history, historyEntry{who: "sys", text: out})
+				m.refreshViewport()
+			}
+			return m, nil
+		case tea.KeyCtrlT:
+			m.cycleTheme()
+			m.refreshViewport()
+			return m, nil
 		case tea.KeyEnter:
+			if msg.Alt {
+				// Alt+Enter = newline (multi-line input). Bubbletea v1.3.10
+				// surfaces this as KeyMsg{Type: KeyEnter, Alt: true}; Shift+Enter
+				// is not distinguishable from bare Enter on standard terminals.
+				m.input.InsertRune('\n')
+				m.resizeInput()
+				return m, nil
+			}
 			return m.submit()
 		}
 
@@ -249,6 +305,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	m.viewport, cmd = m.viewport.Update(msg)
 	cmds = append(cmds, cmd)
+	m.resizeInput()
 	return m, tea.Batch(cmds...)
 }
 
@@ -257,6 +314,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) submit() (tea.Model, tea.Cmd) {
 	line := strings.TrimSpace(m.input.Value())
 	m.input.Reset()
+	m.resizeInput()
 	if line == "" {
 		return m, nil
 	}
@@ -277,6 +335,43 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	m.lastErr = ""
 	m.refreshViewport()
 	return m, tea.Batch(emitSubmit(line), m.spinner.Tick)
+}
+
+// resizeInput resizes the textarea to fit its current content (clamped to
+// [1,6]) and recomputes viewport height around it.
+func (m *model) resizeInput() {
+	h := m.input.LineCount()
+	if h < 1 {
+		h = 1
+	}
+	if h > 6 {
+		h = 6
+	}
+	if m.input.Height() != h {
+		m.input.SetHeight(h)
+	}
+	// Layout: top(1)+sep(1)+viewport+sep(1)+bottom(1)+sep(1)+pad(1)+input(h)
+	// total fixed chrome = 6, plus input.
+	vpH := m.height - 6 - h
+	if vpH < 1 {
+		vpH = 1
+	}
+	m.viewport.Height = vpH
+}
+
+// cycleTheme advances to the next theme in registry order and persists the
+// choice via writeThemeState. Errors are logged; cycling itself never fails.
+func (m *model) cycleTheme() {
+	next := theme.Cycle()
+	if next == nil {
+		return
+	}
+	theme.Set(next)
+	if m.themeStateFile != "" {
+		if err := writeThemeState(m.themeStateFile, next.Name); err != nil {
+			slog.Warn("cli: persist theme state", "file", m.themeStateFile, "error", err)
+		}
+	}
 }
 
 func emitSubmit(line string) tea.Cmd {
