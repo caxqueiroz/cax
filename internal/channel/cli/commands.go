@@ -43,8 +43,10 @@ func (m model) handleCommand(line string) (string, bool) {
 		return m.cmdSkills(), false
 	case "mcp":
 		return m.cmdMCP(), false
+	case "plugin":
+		return m.cmdPlugin(args), false
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp", name), false
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /plugin", name), false
 	}
 }
 
@@ -312,4 +314,138 @@ func pctOf(n, d int) int {
 		return 100
 	}
 	return p
+}
+
+const pluginUsage = "usage: /plugin <list | install <git-url> [name] | enable <name> | disable <name> | remove <name>>"
+
+// cmdPlugin drives the injected pluginBackend. Mutations (install/enable/
+// disable/remove) trigger Rebuild so the running agent picks up the new
+// Contributions on the next turn. List is a pure query.
+func (m model) cmdPlugin(args string) string {
+	if m.plugins == nil {
+		return "plugin: not available (plugins backend not wired); set plugins.enabled: true and configure plugins.dirs in config.yaml"
+	}
+	fields := tokenizeArgs(args)
+	if len(fields) == 0 {
+		return pluginUsage
+	}
+	ctx := context.Background()
+	sub, rest := fields[0], fields[1:]
+
+	switch sub {
+	case "list", "ls":
+		return m.pluginList(ctx)
+	case "install", "add":
+		return m.pluginInstall(ctx, rest)
+	case "enable":
+		return m.pluginSetEnabled(ctx, rest, true)
+	case "disable":
+		return m.pluginSetEnabled(ctx, rest, false)
+	case "remove", "rm", "uninstall":
+		return m.pluginRemove(ctx, rest)
+	default:
+		return pluginUsage
+	}
+}
+
+func (m model) pluginList(ctx context.Context) string {
+	items, err := m.plugins.List(ctx)
+	if err != nil {
+		return fmt.Sprintf("plugin list failed: %v", err)
+	}
+	if len(items) == 0 {
+		return "no plugins installed (try /plugin install <git-url> [name])"
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	var b strings.Builder
+	fmt.Fprintf(&b, "plugins (%d):", len(items))
+	for _, p := range items {
+		state := "off"
+		if p.Enabled {
+			state = "on"
+		}
+		ver := p.Version
+		if ver == "" {
+			ver = "?"
+		}
+		src := p.Source
+		if src == "" {
+			src = "local"
+		}
+		fmt.Fprintf(&b, "\n  %-16s %-8s [%s] %s  (skills %d · mcp %d · lsp %d · hooks %d · cmds %d)",
+			p.Name, ver, state, src, p.SkillCount, p.MCPCount, p.LSPCount, p.HookCount, p.CmdCount)
+	}
+	return b.String()
+}
+
+func (m model) pluginInstall(ctx context.Context, args []string) string {
+	if len(args) < 1 {
+		return pluginUsage
+	}
+	gitURL := args[0]
+	name := ""
+	if len(args) >= 2 {
+		name = args[1]
+	} else {
+		name = inferPluginName(gitURL)
+	}
+	if err := m.plugins.Install(ctx, gitURL, name); err != nil {
+		return fmt.Sprintf("plugin install failed: %v", err)
+	}
+	if err := m.plugins.Rebuild(ctx); err != nil {
+		return fmt.Sprintf("plugin %q installed but rebuild failed: %v", name, err)
+	}
+	return fmt.Sprintf("plugin %q installed from %s", name, gitURL)
+}
+
+func (m model) pluginSetEnabled(ctx context.Context, args []string, enabled bool) string {
+	if len(args) < 1 {
+		return pluginUsage
+	}
+	name := args[0]
+	var err error
+	if enabled {
+		err = m.plugins.Enable(ctx, name)
+	} else {
+		err = m.plugins.Disable(ctx, name)
+	}
+	if err != nil {
+		return fmt.Sprintf("plugin update failed: %v", err)
+	}
+	if err := m.plugins.Rebuild(ctx); err != nil {
+		return fmt.Sprintf("plugin %q updated but rebuild failed: %v", name, err)
+	}
+	verb := "enabled"
+	if !enabled {
+		verb = "disabled"
+	}
+	return fmt.Sprintf("plugin %q %s", name, verb)
+}
+
+func (m model) pluginRemove(ctx context.Context, args []string) string {
+	if len(args) < 1 {
+		return pluginUsage
+	}
+	name := args[0]
+	if err := m.plugins.Remove(ctx, name); err != nil {
+		return fmt.Sprintf("plugin remove failed: %v", err)
+	}
+	if err := m.plugins.Rebuild(ctx); err != nil {
+		return fmt.Sprintf("plugin %q removed but rebuild failed: %v", name, err)
+	}
+	return fmt.Sprintf("plugin %q removed", name)
+}
+
+// inferPluginName extracts a sensible default from a git URL: the last path
+// segment minus a trailing ".git".
+func inferPluginName(gitURL string) string {
+	s := gitURL
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
+	}
+	s = strings.TrimSuffix(s, ".git")
+	if s == "" {
+		return "plugin"
+	}
+	return s
 }

@@ -21,6 +21,35 @@ type scheduleBackend interface {
 	Reload(ctx context.Context) error
 }
 
+// pluginBackend is the surface the /plugin command drives. It mirrors
+// scheduleBackend's split: the CLI depends only on this minimal contract;
+// cmd/czcli wires a real plugins.Manager adapter. Every mutation triggers
+// Rebuild so the agent picks up new contributions on the next turn.
+type pluginBackend interface {
+	List(ctx context.Context) ([]PluginListItem, error)
+	Install(ctx context.Context, gitURL, name string) error
+	Enable(ctx context.Context, name string) error
+	Disable(ctx context.Context, name string) error
+	Remove(ctx context.Context, name string) error
+	Rebuild(ctx context.Context) error
+}
+
+// PluginListItem is the projection of plugins.PluginInfo the CLI renders. It
+// lives in the cli package so internal/plugins is not imported here (mirror
+// of the scheduleBackend pattern, which keeps cli package-clean of plugins).
+type PluginListItem struct {
+	Name       string
+	Version    string
+	Source     string
+	Enabled    bool
+	SkillCount int
+	MCPCount   int
+	LSPCount   int
+	HookCount  int
+	CmdCount   int
+	AgentCount int
+}
+
 // historyEntry is one rendered conversation line ("you:" / "bot:" / system).
 type historyEntry struct {
 	who  string // "you" | "bot" | "sys"
@@ -81,7 +110,8 @@ type model struct {
 	running   []string // running subagent names (live)
 	lastErr   string
 
-	sched scheduleBackend // optional; nil when the scheduler isn't wired
+	sched   scheduleBackend // optional; nil when the scheduler isn't wired
+	plugins pluginBackend   // optional; nil when /plugin is not wired
 
 	ready bool // viewport sized at least once
 }

@@ -22,6 +22,7 @@ type CLI struct {
 	sessionID      string
 	statusInterval time.Duration
 	sched          scheduleBackend
+	plugins        pluginBackend
 }
 
 // Option configures a CLI.
@@ -39,6 +40,12 @@ func WithStatusInterval(d time.Duration) Option {
 // /schedule command reports that scheduling is not available.
 func WithScheduler(b scheduleBackend) Option {
 	return func(c *CLI) { c.sched = b }
+}
+
+// WithPlugins wires the /plugin (list|install|enable|disable|remove) backend.
+// When unset, /plugin reports that plugins are not available.
+func WithPlugins(b pluginBackend) Option {
+	return func(c *CLI) { c.plugins = b }
 }
 
 // New builds a CLI channel with sensible defaults.
@@ -65,6 +72,7 @@ type tickMsg struct{}
 func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.StatusFunc) error {
 	m := newModel(80, 24)
 	m.sched = c.sched
+	m.plugins = c.plugins
 	pm := &programModel{
 		model:  m,
 		cli:    c,
