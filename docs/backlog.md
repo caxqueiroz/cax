@@ -19,6 +19,44 @@ depends on. Order is rough priority — adjust as we learn.
 
 ---
 
+## Better "copy code out" UX (revisit `/code` and selection)
+
+**Why.** The current solution — `/code` writing fenced blocks (or `/code reply`
+for the whole reply) to `~/.cax/scratch/<ts>.<ext>` and suspending the TUI via
+`tea.ExecProcess` to open it in `$PAGER`/`less -RX` — is functional but rough:
+
+- Mouse selection inside `less` is terminal-emulator-dependent (iTerm OK, some
+  others swallow the events; Option-drag bypass not discoverable).
+- `tea.ExecProcess` only auto-restores the alt-screen on resume; we patch
+  mouse-cell-motion back via an `execDoneMsg` round trip, but it's still
+  flaky after suspend/resume on some terminals.
+- For *unfenced* output the user has to know to use `/code reply` — not the
+  ergonomic ChatGPT "copy" button experience.
+
+**Scope sketches (pick one or combine):**
+
+1. **In-app code viewer panel.** A full-screen modal inside cax (still in
+   bubbletea, no ExecProcess) that renders the selected block with line
+   numbers; disable `tea.WithMouseCellMotion` while the panel is open so
+   native terminal drag-select works. Esc returns to chat. No alt-screen
+   restoration dance, no pager dependency.
+2. **OSC 52 clipboard.** A `/copy` (Ctrl+Y) command that base64-encodes the
+   selected block and emits an OSC 52 escape so it lands directly in the
+   system clipboard with no intermediate file. Works in iTerm, kitty,
+   Alacritty, tmux (with passthrough). Add a runtime detection or config flag.
+3. **Per-block UI affordance.** Render each fenced block with a small dim
+   header (e.g. `┄ block 2 · go · /code 2 to open`) so the user always sees
+   the index and never has to count blocks.
+4. **Better post-resume terminal-mode restoration.** Audit what bubbletea
+   actually re-issues across versions; possibly switch to its newer
+   `ExecProcessHandler` API if available. Make this robust to nested
+   suspend/resume sequences (e.g. the pager itself launches `$EDITOR`).
+
+**Dependencies.** None blocking — purely TUI work. Likely needs the `/copy`
+slash command surface from an earlier revision (already drafted, then removed).
+
+---
+
 ## Dynamic Workflows (Claude-Code-style fan-out + verification)
 
 **Why.** Claude Code's "Dynamic Workflows" lets the agent fan out work to many parallel
