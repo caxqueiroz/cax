@@ -21,6 +21,15 @@ providers:
     base_url: https://krakend.internal/bedrock
     token_env: CAX_BEDROCK_API_KEY
     max_tokens: 4096
+  # Second openai entry running a CHEAP model — used by utility roles
+  # (summarizer / fact_extractor / subagent_default) via model_roles below.
+  # `type` is required when the name doesn't match the provider implementation.
+  # - name: openai-cheap
+  #   type: openai
+  #   enabled: true
+  #   model: gpt-5-nano
+  #   api_key_env: OPENAI_API_KEY
+  #   max_tokens: 4096
 
 embeddings:
   provider: openai
@@ -38,12 +47,39 @@ memory:
   db_path: ~/.cax/memory.db
   token_budget: 8000
   recall_k: 5
+  # Retrieval mode:
+  #   snippets (default): legacy — embed raw turns, recall top-K snippets.
+  #   facts: mem0-style — extractor runs each turn (cheap model) to derive
+  #          atomic facts. PreGeneration injects facts instead of snippets.
+  #   both:  extract facts AND recall snippets; inject both.
+  mode: snippets
+  # Which model role runs fact extraction. Defaults to "fact_extractor",
+  # which falls back to "cheap". Pick a cheap model — extraction runs every
+  # turn when mode != snippets.
+  # fact_extractor_role: fact_extractor
+
+# Map model roles to provider names. The agent (main turn loop) always uses
+# the fallback chain. Utility roles default to "cheap" → "agent". To save
+# tokens on summarization / fact extraction / sub-agents, configure a second
+# provider entry with a cheap model and point the roles at it.
+# model_roles:
+#   cheap: openai-cheap
+#   summarizer: openai-cheap
+#   fact_extractor: openai-cheap
+#   subagent_default: openai-cheap
 
 tools:
   web_enabled: true
   files_enabled: true
   bash_enabled: true
   require_confirm: true
+  # Filesystem scope for Bash/Write/Edit/Read/Glob/Grep. The FIRST entry is
+  # the writable workspace; subsequent entries are read-only allowed paths.
+  # Tilde and env vars are expanded. Default when unset: [$HOME].
+  workspace_dirs:
+    - ~
+    # - /tmp
+    # - /Users/cq/Dev/some-other-project
 
 subagents:
   enabled: true

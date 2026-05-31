@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/caxqueiroz/cax/internal/config"
 	"github.com/caxqueiroz/cax/internal/creator"
@@ -76,8 +77,10 @@ func (m *model) handleCommand(line string) (string, bool, *creator.Wizard) {
 		return m.cmdPermissions(args), false, nil
 	case "code":
 		return m.cmdCode(args), false, nil
+	case "facts":
+		return m.cmdFacts(args), false, nil
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about /permissions", name), false, nil
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about /permissions /code /facts", name), false, nil
 	}
 }
 
@@ -260,7 +263,7 @@ func (m model) renderHelpOverlay() string {
 	b.WriteString("  Ctrl+C / Esc     quit\n")
 	b.WriteString("  PgUp / PgDn      scroll viewport\n")
 	b.WriteString("\nbuilt-in commands:\n")
-	b.WriteString("  /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /quit\n")
+	b.WriteString("  /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /facts /code /quit\n")
 	b.WriteString("  /about                             show the brand mark + active theme\n")
 	b.WriteString("  /new skill|agent|command [name]   start the creator wizard\n")
 	b.WriteString("  /cancel                            cancel the active wizard\n")
@@ -779,4 +782,71 @@ func inferPluginName(gitURL string) string {
 		return "plugin"
 	}
 	return s
+}
+
+// cmdFacts inspects the mem0-style fact store. Subcommands:
+//
+//	/facts            — list all live facts for the current session (newest first)
+//	/facts <query>    — semantic search; returns top-K closest facts
+//	/facts clear      — soft-delete every fact for the session
+//
+// Requires factsBackend (wired by main.go over memory.Store). When unset
+// (e.g. memory.mode left at snippets and the backend was opted out), the
+// command reports that and exits cleanly.
+func (m model) cmdFacts(args string) string {
+	if m.facts == nil {
+		return "facts: not wired — set memory.mode: facts (or both) in ~/.cax/config.yaml"
+	}
+	ctx, cancel := contextWithTimeout(3 * time.Second)
+	defer cancel()
+	sid := m.sessionID()
+	args = strings.TrimSpace(args)
+
+	switch {
+	case args == "":
+		hits, err := m.facts.List(ctx, sid, 50)
+		if err != nil {
+			return fmt.Sprintf("facts: list failed: %s", err.Error())
+		}
+		return renderFactList(hits, "all facts for this session")
+	case args == "clear":
+		n, err := m.facts.Clear(ctx, sid)
+		if err != nil {
+			return fmt.Sprintf("facts: clear failed: %s", err.Error())
+		}
+		return fmt.Sprintf("facts: cleared %d facts", n)
+	default:
+		hits, err := m.facts.Search(ctx, sid, args, 10)
+		if err != nil {
+			return fmt.Sprintf("facts: search failed: %s", err.Error())
+		}
+		return renderFactList(hits, fmt.Sprintf("facts matching %q", args))
+	}
+}
+
+func renderFactList(hits []FactDisplay, header string) string {
+	if len(hits) == 0 {
+		return header + " — none"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s (%d):\n", header, len(hits))
+	for _, h := range hits {
+		kind := h.Kind
+		if kind == "" {
+			kind = "·"
+		}
+		fmt.Fprintf(&b, "  [%d] %s  (%s, %s)\n", h.ID, h.Text, kind, h.UpdatedAt.Format("2006-01-02"))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// sessionID is the CLI's outbound session id — currently the same constant
+// the CLI hands to every channel.Message. Kept as a method so future
+// per-tab / per-window scoping can land in one place.
+func (m model) sessionID() string { return "cli" }
+
+// contextWithTimeout is a tiny helper so cmd handlers don't need to repeat
+// the boilerplate. Always pair with defer cancel().
+func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), d)
 }

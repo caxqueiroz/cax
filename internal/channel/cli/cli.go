@@ -14,6 +14,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/channel"
 	"github.com/caxqueiroz/cax/internal/hooks"
 	"github.com/caxqueiroz/cax/internal/plugins"
+	"github.com/caxqueiroz/cax/internal/tasks"
 )
 
 // CLI satisfies channel.Channel.
@@ -31,6 +32,8 @@ type CLI struct {
 	themeStateFile string
 	permDialog     *PermDialog // optional; nil disables the TUI permission modal
 	showStreaming  *bool       // optional override; nil leaves the model's default (true)
+	taskBoard      *tasks.Board
+	facts          factsBackend
 }
 
 // Option configures a CLI.
@@ -97,6 +100,19 @@ func WithPermDialog(d *PermDialog) Option {
 	return func(c *CLI) { c.permDialog = d }
 }
 
+// WithTaskBoard wires the agent-shared *tasks.Board. cli.Start subscribes to
+// it and pushes a tasksUpdateMsg into the model whenever the tasks_set tool
+// fires, so the panel above the input stays live.
+func WithTaskBoard(b *tasks.Board) Option {
+	return func(c *CLI) { c.taskBoard = b }
+}
+
+// WithFacts wires the memory.Store-backed factsBackend powering /facts.
+// When unset, /facts reports the backend isn't wired.
+func WithFacts(b factsBackend) Option {
+	return func(c *CLI) { c.facts = b }
+}
+
 // New builds a CLI channel with sensible defaults.
 func New(opts ...Option) *CLI {
 	c := &CLI{
@@ -123,6 +139,7 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	m.sched = c.sched
 	m.plugins = c.plugins
 	m.creator = c.creator
+	m.facts = c.facts
 	m.hookEntries = c.hookEntries
 	m.userCommands = c.userCommands
 	m.themeStateFile = c.themeStateFile
@@ -145,6 +162,15 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	pm.send = p.Send
 	if c.permDialog != nil {
 		c.permDialog.setSender(p.Send)
+	}
+	if c.taskBoard != nil {
+		c.taskBoard.Subscribe(func(ts []tasks.Task) {
+			p.Send(tasksUpdateMsg{tasks: ts})
+		})
+		// Prime with the current snapshot so a reload mid-task still shows them.
+		if snap := c.taskBoard.Snapshot(); len(snap) > 0 {
+			m.taskList = snap
+		}
 	}
 
 	// Cancel the program when the context ends.

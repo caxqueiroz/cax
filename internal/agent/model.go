@@ -157,36 +157,50 @@ func isRetryable(err error) bool {
 	return false
 }
 
+// buildOne constructs a single provider llm by ProviderConfig. Used by both
+// BuildModel (the fallback chain) and Router.For (single-named lookups).
+func buildOne(pc config.ProviderConfig) (llm.StreamingLLM, error) {
+	switch pc.EffectiveType() {
+	case "bedrock":
+		return bedrock.New(
+			bedrock.WithBaseURL(pc.BaseURL),
+			bedrock.WithModel(pc.Model),
+			bedrock.WithAPIKey(os.Getenv(pc.TokenEnv)),
+			bedrock.WithMaxTokens(pc.MaxTokens),
+		), nil
+	case "openai":
+		return openaiprovider.New(
+			openaiprovider.WithModel(pc.Model),
+			openaiprovider.WithAPIKey(os.Getenv(pc.APIKeyEnv)),
+			openaiprovider.WithMaxTokens(pc.MaxTokens),
+		), nil
+	default:
+		return nil, fmt.Errorf("agent: provider %q: unknown type %q (want bedrock|openai)", pc.Name, pc.EffectiveType())
+	}
+}
+
 // BuildModel constructs each enabled provider in order and wraps them in a
 // fallback chain. Provider order in config defines fallback priority; entries
 // with `enabled: false` are skipped (unknown providers still error).
+//
+// This is the model used by the main agent loop — equivalent to
+// Router.For(ModelRoleAgent). Kept as a separate entrypoint so existing
+// callers in main.go and tests work unchanged.
 func BuildModel(cfg *config.Config) (llm.StreamingLLM, error) {
 	if cfg == nil || len(cfg.Providers) == 0 {
 		return nil, fmt.Errorf("agent: at least one provider is required")
 	}
 	providers := make([]llm.StreamingLLM, 0, len(cfg.Providers))
 	modelIDs := make([]string, 0, len(cfg.Providers))
-	for i, pc := range cfg.Providers {
+	for _, pc := range cfg.Providers {
 		if !pc.IsEnabled() {
 			continue
 		}
-		switch pc.Name {
-		case "bedrock":
-			providers = append(providers, bedrock.New(
-				bedrock.WithBaseURL(pc.BaseURL),
-				bedrock.WithModel(pc.Model),
-				bedrock.WithAPIKey(os.Getenv(pc.TokenEnv)),
-				bedrock.WithMaxTokens(pc.MaxTokens),
-			))
-		case "openai":
-			providers = append(providers, openaiprovider.New(
-				openaiprovider.WithModel(pc.Model),
-				openaiprovider.WithAPIKey(os.Getenv(pc.APIKeyEnv)),
-				openaiprovider.WithMaxTokens(pc.MaxTokens),
-			))
-		default:
-			return nil, fmt.Errorf("agent: providers[%d]: unknown provider %q (want bedrock|openai)", i, pc.Name)
+		m, err := buildOne(pc)
+		if err != nil {
+			return nil, err
 		}
+		providers = append(providers, m)
 		modelIDs = append(modelIDs, pc.Model)
 	}
 	if len(providers) == 0 {

@@ -111,7 +111,7 @@ func TestBuildIncludesLSPToolsAndStatus(t *testing.T) {
 		{Name: "gopls", Languages: []string{"go"}, Running: true},
 		{Name: "pyright", Languages: []string{"python"}, Running: false, LastError: "not found"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, nil, lspTools, lspInfos, nil, nil)
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, nil, lspTools, lspInfos, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestStatusReportsMCPServerNames(t *testing.T) {
 		{Name: "git", Transport: "stdio", Connected: true, ToolCount: 3},
 		{Name: "github", Transport: "http", Connected: false, LastError: "auth"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos, nil, nil, nil, nil)
+	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestBuildWithMCPInfos_AppendsCreatorToolsToRegistry(t *testing.T) {
 	}
 	creatorTool := &fakeMCPTool{name: "create_skill"}
 	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model,
-		nil, nil, nil, nil, nil, nil, []dive.Tool{creatorTool})
+		nil, nil, nil, nil, nil, nil, []dive.Tool{creatorTool}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildWithMCPInfos: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestRebuild_PicksUpNewCreatorTools(t *testing.T) {
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
 	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model,
-		nil, nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildWithMCPInfos: %v", err)
 	}
@@ -375,5 +375,27 @@ func TestSummarizer_UsesModel(t *testing.T) {
 	}
 	if got != "a concise summary" {
 		t.Fatalf("summary = %q", got)
+	}
+}
+
+// TestRunningSubagents_ExpandsPerInvocation verifies that N concurrent calls
+// to the same sub-agent name surface as N entries (not 1) so the CLI badge
+// can show the real fan-out count. Regression guard for the collapsed-list
+// bug discovered while building Phase 3 (parallel sub-agents).
+func TestRunningSubagents_ExpandsPerInvocation(t *testing.T) {
+	a := &Assistant{running: make(map[string]int)}
+	a.subagentStarted("Agent")
+	a.subagentStarted("Agent")
+	a.subagentStarted("Agent")
+	a.subagentStarted("Explore")
+
+	got := a.runningSubagents()
+	if len(got) != 4 {
+		t.Fatalf("want 4 running entries, got %d (%v)", len(got), got)
+	}
+	a.subagentEnded("Agent")
+	got = a.runningSubagents()
+	if len(got) != 3 {
+		t.Fatalf("after one Agent end: want 3, got %d (%v)", len(got), got)
 	}
 }

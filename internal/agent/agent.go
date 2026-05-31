@@ -18,7 +18,9 @@ import (
 	"github.com/caxqueiroz/cax/internal/lsp"
 	"github.com/caxqueiroz/cax/internal/mcp"
 	"github.com/caxqueiroz/cax/internal/memory"
+	"github.com/caxqueiroz/cax/internal/bgproc"
 	"github.com/caxqueiroz/cax/internal/skills"
+	"github.com/caxqueiroz/cax/internal/tasks"
 	"github.com/caxqueiroz/cax/internal/tools"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
@@ -33,9 +35,10 @@ var (
 // turns, report status, and summarize memory. The inner *dive.Agent is
 // swappable via Rebuild under buildMu so hot-reload survives in-flight turns.
 type Assistant struct {
-	store *memory.Store
-	model llm.StreamingLLM
-	cfg   *config.Config
+	store  *memory.Store
+	model  llm.StreamingLLM
+	router *Router
+	cfg    *config.Config
 
 	buildMu        sync.RWMutex
 	agent          *dive.Agent
@@ -45,6 +48,8 @@ type Assistant struct {
 	mcpServerNames []string
 	lspInfos       []lsp.ServerInfo
 	hooksDisp      *hooks.Dispatcher // nil-safe; populated by Build/Rebuild
+	taskBoard      *tasks.Board      // nil-safe; shared with the CLI for the live task panel
+	bgReg          *bgproc.Registry  // nil-safe; powers bash_bg/bash_status + the completion-notice injection
 
 	dialogMu sync.RWMutex
 	dialog   dive.Dialog // optional override; SetDialog wires the TUI's modal
@@ -56,6 +61,10 @@ type Assistant struct {
 	lastSessionID string // most recent session id seen by Handle; powers the buffer gauge
 }
 
+// TaskBoard returns the shared *tasks.Board so callers (the CLI) can
+// subscribe to updates from the tasks_set tool. Nil-safe.
+func (a *Assistant) TaskBoard() *tasks.Board { return a.taskBoard }
+
 // SetDialog installs a custom dive.Dialog used by the permission gate. The
 // next Build/Rebuild picks it up; pass nil to revert to the legacy stdin
 // prompt. Calling this before the first Build is fine — Build reads the
@@ -66,14 +75,29 @@ func (a *Assistant) SetDialog(d dive.Dialog) {
 	a.dialogMu.Unlock()
 }
 
-// Build assembles the dive.Agent with skills registered as a dive.Extension
-// (v1.7 wires skill.Loader through AgentOptions.Extensions), MCP tools, and
-// the existing memory hooks. Plan 6 introduced the skills + mcpTools params;
-// Plan 8 adds lspTools (already-realized dive tools from lsp.Manager.Tools()).
+// BuildOptions bundles every optional dependency the assistant accepts.
+// Required values (cfg, store, model) stay positional on BuildAgent; the
+// rest live here so future additions don't churn the signature.
 //
-// Plan 9 keeps Build's signature stable: hooks plumbing flows through
-// BuildWithMCPInfos. Callers that need to register a *hooks.Dispatcher should
-// use BuildWithMCPInfos (or Rebuild for hot-reload).
+// Model is required when Router is nil. Router takes precedence when both
+// are set: the bare Model is still kept for status display (ActiveReporter
+// surfaces the fallback chain), but role lookups go through Router.
+type BuildOptions struct {
+	Model        llm.StreamingLLM
+	Router       *Router
+	SkillRes     *skills.LoadResult
+	MCPTools     []dive.Tool
+	MCPInfos     []mcp.ServerInfo
+	LSPTools     []dive.Tool
+	LSPInfos     []lsp.ServerInfo
+	HooksDisp    *hooks.Dispatcher
+	CreatorTools []dive.Tool
+	TaskBoard    *tasks.Board
+	BgReg        *bgproc.Registry
+}
+
+// Build is the legacy thin entrypoint kept for back-compat. New callers
+// should use BuildAgent with a BuildOptions struct.
 func Build(
 	ctx context.Context,
 	cfg *config.Config,
@@ -83,18 +107,17 @@ func Build(
 	mcpTools []dive.Tool,
 	creatorTools []dive.Tool,
 ) (*Assistant, error) {
-	return BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, nil, nil, nil, nil, creatorTools)
+	return BuildAgent(ctx, cfg, store, BuildOptions{
+		Model:        model,
+		SkillRes:     skillRes,
+		MCPTools:     mcpTools,
+		CreatorTools: creatorTools,
+	})
 }
 
-// BuildWithMCPInfos is Build plus the MCP ServerInfos and LSP ServerInfos so
-// Status can render server names without re-querying their managers, plus the
-// Plan 9 *hooks.Dispatcher that wires plugin-declared lifecycle hooks into the
-// dive agent. cmd/cax/main.go uses this; Plans 7-9 also use it for
-// plugin-contributed contributions. Plan 8 added lspTools/lspInfos additively,
-// Plan 9 appends hooksDisp, and Plan 12 appends creatorTools — the three
-// create_skill/create_agent/create_command FuncTools wired over the shared
-// Writer + Reloader pair so natural-language and /new requests produce
-// identical files.
+// BuildWithMCPInfos is a deprecated forwarder. Prefer BuildAgent with
+// BuildOptions. Kept so existing callers (older tests, embedded users) keep
+// compiling unchanged.
 func BuildWithMCPInfos(
 	ctx context.Context,
 	cfg *config.Config,
@@ -107,15 +130,62 @@ func BuildWithMCPInfos(
 	lspInfos []lsp.ServerInfo,
 	hooksDisp *hooks.Dispatcher,
 	creatorTools []dive.Tool,
+	taskBoard *tasks.Board,
+	bgReg *bgproc.Registry,
+	router *Router,
+) (*Assistant, error) {
+	return BuildAgent(ctx, cfg, store, BuildOptions{
+		Model:        model,
+		Router:       router,
+		SkillRes:     skillRes,
+		MCPTools:     mcpTools,
+		MCPInfos:     mcpInfos,
+		LSPTools:     lspTools,
+		LSPInfos:     lspInfos,
+		HooksDisp:    hooksDisp,
+		CreatorTools: creatorTools,
+		TaskBoard:    taskBoard,
+		BgReg:        bgReg,
+	})
+}
+
+// BuildAgent is the canonical assistant constructor. Required: cfg, store,
+// and either opts.Model or opts.Router. Everything else is optional and
+// nil-safe.
+func BuildAgent(
+	ctx context.Context,
+	cfg *config.Config,
+	store *memory.Store,
+	opts BuildOptions,
 ) (*Assistant, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("agent: nil config")
 	}
-	if model == nil {
-		return nil, fmt.Errorf("agent: nil model")
+	model := opts.Model
+	router := opts.Router
+	if router != nil && model == nil {
+		// Router supplies the agent chain; reuse it as the model surface.
+		model = router.For(config.ModelRoleAgent)
 	}
+	if model == nil {
+		return nil, fmt.Errorf("agent: BuildOptions.Model or BuildOptions.Router is required")
+	}
+	if router == nil {
+		// Tests + simple callers: wrap the bare model in a stub router so every
+		// role resolves to the same llm.
+		router = NewRouterFromLLM(model)
+	}
+	skillRes := opts.SkillRes
+	mcpTools := opts.MCPTools
+	mcpInfos := opts.MCPInfos
+	lspTools := opts.LSPTools
+	lspInfos := opts.LSPInfos
+	hooksDisp := opts.HooksDisp
+	creatorTools := opts.CreatorTools
+	taskBoard := opts.TaskBoard
+	bgReg := opts.BgReg
 
-	builtins, err := tools.Registry(cfg.Tools, store)
+	builtins, err := tools.Registry(cfg.Tools, store, taskBoard, bgReg)
 	if err != nil {
 		return nil, fmt.Errorf("agent: build tool registry: %w", err)
 	}
@@ -123,11 +193,14 @@ func BuildWithMCPInfos(
 	a := &Assistant{
 		store:     store,
 		model:     model,
+		router:    router,
 		cfg:       cfg,
 		tools:     builtins,
 		skillRes:  skillRes,
 		running:   make(map[string]int),
 		hooksDisp: hooksDisp,
+		taskBoard: taskBoard,
+		bgReg:     bgReg,
 	}
 
 	// MCP tools come from cmd/cax/main.go via mcp.Connect; mcp.Connect is
@@ -161,10 +234,21 @@ func BuildWithMCPInfos(
 			return legacyDialog
 		},
 		summarizerFn: func() memory.Summarizer { return a.Summarizer() },
-		hooksDisp:    hooksDisp,
+		factExtractorFn: func() memory.FactExtractor {
+			if a.router == nil {
+				return nil
+			}
+			role := config.ModelRoleFactExtractor
+			if a.cfg != nil {
+				role = a.cfg.Memory.EffectiveFactExtractorRole()
+			}
+			return NewFactExtractor(a.router.For(role))
+		},
+		hooksDisp: hooksDisp,
+		bgReg:     bgReg,
 	}
 
-	opts := dive.AgentOptions{
+	diveOpts := dive.AgentOptions{
 		Name:         "cax",
 		SystemPrompt: composeSystemPrompt(cfg.Persona),
 		Model:        model,
@@ -177,10 +261,10 @@ func BuildWithMCPInfos(
 		},
 	}
 	if skillRes != nil && skillRes.Loader != nil {
-		opts.Extensions = append(opts.Extensions, skillRes.Loader)
+		diveOpts.Extensions = append(diveOpts.Extensions, skillRes.Loader)
 	}
 
-	diveAgent, err := dive.NewAgent(opts)
+	diveAgent, err := dive.NewAgent(diveOpts)
 	if err != nil {
 		return nil, fmt.Errorf("agent: new dive agent: %w", err)
 	}
@@ -214,7 +298,7 @@ func (a *Assistant) Rebuild(
 	hooksDisp *hooks.Dispatcher,
 	creatorTools []dive.Tool,
 ) error {
-	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, creatorTools)
+	next, err := BuildWithMCPInfos(ctx, cfg, a.store, a.model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, creatorTools, a.taskBoard, a.bgReg, a.router)
 	if err != nil {
 		return fmt.Errorf("agent: rebuild: %w", err)
 	}
@@ -329,12 +413,17 @@ func (a *Assistant) subagentEnded(name string) {
 	a.mu.Unlock()
 }
 
+// runningSubagents returns one entry per ACTIVE sub-agent invocation (not per
+// distinct name). Three parallel Agent calls return three entries so the
+// CLI's badge can show the real fan-out count.
 func (a *Assistant) runningSubagents() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	names := make([]string, 0, len(a.running))
-	for n := range a.running {
-		names = append(names, n)
+	var names []string
+	for n, count := range a.running {
+		for i := 0; i < count; i++ {
+			names = append(names, n)
+		}
 	}
 	sort.Strings(names)
 	return names
@@ -477,10 +566,17 @@ func toolNamesOf(tools []dive.Tool) []string {
 	return names
 }
 
-// Summarizer returns a memory.Summarizer backed by the agent's model. It is
-// used by the PostGeneration hook to condense old turns.
+// Summarizer returns a memory.Summarizer backed by the SUMMARIZER role
+// (config.ModelRoleSummarizer). With ModelRoles unset, this falls through to
+// the agent chain — same as before. With a cheap model wired to the
+// summarizer role, summarization runs on the cheaper provider so the main
+// turn-loop tokens aren't burned on memory plumbing.
 func (a *Assistant) Summarizer() memory.Summarizer {
-	return modelSummarizer{model: a.model}
+	m := a.model
+	if a.router != nil {
+		m = a.router.For(config.ModelRoleSummarizer)
+	}
+	return modelSummarizer{model: m}
 }
 
 // modelSummarizer condenses messages with a single non-streaming model call.
@@ -493,13 +589,18 @@ const summarizePrompt = "You are folding new conversation into an existing summa
 // defaultInstructions is the short, action-first block appended to every
 // system prompt. Kept terse on purpose — long examples make the model
 // echo the same style back.
-const defaultInstructions = `Rules:
-1. When asked to do something, use the tools (Write, Edit, Bash, Glob, Grep, WebFetch, search_memory, Agent for sub-agents). Do not just print the code you would write.
+const defaultInstructions = `You are running as a local CLI process on the user's machine. The tools you have (Bash, Write, Edit, Glob, Grep, WebFetch, search_memory, Agent) execute on THIS machine — Bash runs in the user's shell with the user's permissions, Write/Edit modify real files on the user's filesystem. You are NOT a sandboxed chat assistant. Never say "I can't run commands on your machine", "I don't have remote access", or "I can only give you commands to run" — those statements are false. If something needs running, call Bash. If a file needs creating, call Write.
+
+Rules:
+1. When asked to do something, use the tools (Write, Edit, Bash, Glob, Grep, WebFetch, search_memory, Agent for sub-agents). Do not just print the code you would write. Do not offer to "provide commands you can run" — run them yourself with Bash.
 2. Be brief. No preamble like "I'll do X then Y". Just do it and report what you did in one or two sentences.
 3. Do not re-print tool output the user already saw via the tool. Reference paths instead.
 4. Wrap pre-formatted text in fenced code blocks only when you actually need to show it.
 5. If a tool fails or output shows an error (compile error, test failure, lint warning, non-zero exit code, missing file), READ the error, fix the cause yourself with Edit/Write, and retry. Do not ask the user to fix code you wrote. Only escalate when you've genuinely run out of moves: missing credentials, missing tools, ambiguous design choices, or the same failure after 3+ self-fix attempts.
-6. Before reporting a task "done", verify it works. Created Go code? Run "go build ./..." (or "task build"). Created Python? Run it or its tests. Created a script? Execute it. "Done" means the artifact behaves as asked.`
+6. Before reporting a task "done", verify it works. Created Go code? Run "go build ./..." (or "task build"). Created Python? Run it or its tests. Created a script? Execute it. "Done" means the artifact behaves as asked.
+7. For any work that takes more than 2 steps (build N files, refactor across packages, scaffold a project, debug across stages), publish your plan via tasks_set BEFORE starting. Update the list as you go — exactly one task in_progress at a time. Mark completed when done, failed when you give up on a step. BEFORE replying to the user, mark every task you actually finished as completed — do not leave a task in_progress when you're done; that strands the panel on screen. The user sees this list live above the input; it is your visible structure.
+8. For long-running commands (full builds, test suites, watchers, anything > ~10s), use bash_bg instead of Bash. It returns a task_id immediately so you can continue working; poll with bash_status(task_id), or wait for the auto-injected completion notice on the next turn. Use plain Bash for short commands (< ~10s).
+9. When work has INDEPENDENT parts (search 3 different subdirs, investigate 4 unrelated bugs, review N files), FAN OUT: emit multiple Agent tool calls IN THE SAME TURN with run_in_background:true. Pick the right subagent_type per task (Explore for read-only search, GeneralPurpose for action, Plan for design). Each agent runs concurrently with its own context window, results stream back automatically. Sequential single-agent calls for independent work waste wall-clock and your context budget. Examples that should fan out: "find all callers of X and Y and Z" (3 Explore agents), "review these 5 files" (5 GeneralPurpose agents), "what does package A do and how does package B differ" (2 Explore agents).`
 
 // composeSystemPrompt prepends the user's persona to the built-in default
 // instructions. If the persona is empty, falls back to a neutral default.

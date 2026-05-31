@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/caxqueiroz/cax/internal/agent"
+	"github.com/caxqueiroz/cax/internal/bgproc"
 	"github.com/caxqueiroz/cax/internal/channel"
 	"github.com/caxqueiroz/cax/internal/channel/cli"
 	"github.com/caxqueiroz/cax/internal/config"
@@ -26,7 +27,9 @@ import (
 	"github.com/caxqueiroz/cax/internal/plugins"
 	"github.com/caxqueiroz/cax/internal/scheduler"
 	"github.com/caxqueiroz/cax/internal/skills"
+	"github.com/caxqueiroz/cax/internal/tasks"
 	"github.com/caxqueiroz/cax/internal/theme"
+	"github.com/caxqueiroz/cax/internal/tools"
 	"github.com/caxqueiroz/cax/internal/usercmds"
 	"github.com/deepnoodle-ai/dive"
 )
@@ -171,7 +174,32 @@ func run() error {
 	creatorTools := creator.Tools(writer, reloader)
 	reloader.creatorTools = creatorTools
 
-	assistant, err := agent.BuildWithMCPInfos(ctx, cfg, store, model, skillRes, mcpTools, mcpInfos, lspTools, lspInfos, hooksDisp, creatorTools)
+	taskBoard := tasks.NewBoard()
+
+	bgValidator, vErr := tools.BuildPathValidator(cfg.Tools.WorkspaceDirs)
+	if vErr != nil {
+		return fmt.Errorf("bgproc validator: %w", vErr)
+	}
+	bgReg := bgproc.New(bgValidator)
+
+	router, rErr := agent.NewRouter(cfg, model)
+	if rErr != nil {
+		return fmt.Errorf("build model router: %w", rErr)
+	}
+
+	assistant, err := agent.BuildAgent(ctx, cfg, store, agent.BuildOptions{
+		Model:        model,
+		Router:       router,
+		SkillRes:     skillRes,
+		MCPTools:     mcpTools,
+		MCPInfos:     mcpInfos,
+		LSPTools:     lspTools,
+		LSPInfos:     lspInfos,
+		HooksDisp:    hooksDisp,
+		CreatorTools: creatorTools,
+		TaskBoard:    taskBoard,
+		BgReg:        bgReg,
+	})
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
 	}
@@ -219,6 +247,8 @@ func run() error {
 		cli.WithThemeStateFile(themeStatePath()),
 		cli.WithPermDialog(permDialog),
 		cli.WithShowStreaming(cfg.CLI.StreamingEnabled()),
+		cli.WithTaskBoard(taskBoard),
+		cli.WithFacts(factsAdapter{store: store}),
 	)
 	statusFn := func(ctx context.Context) (channel.Status, error) {
 		st, err := assistant.Status(ctx)
@@ -277,6 +307,51 @@ func (a scheduleAdapter) Upsert(ctx context.Context, sc config.ScheduleConfig) e
 
 func (a scheduleAdapter) Reload(ctx context.Context) error {
 	return a.sched.Reload(ctx)
+}
+
+// factsAdapter satisfies cli.factsBackend over the memory.Store. List drains
+// every live fact for the session; Search runs a semantic recall; Clear soft-
+// deletes everything live for the session and returns the count cleared.
+type factsAdapter struct {
+	store *memory.Store
+}
+
+func (a factsAdapter) List(ctx context.Context, sessionID string, limit int) ([]cli.FactDisplay, error) {
+	rows, err := a.store.ListFacts(ctx, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]cli.FactDisplay, len(rows))
+	for i, f := range rows {
+		out[i] = cli.FactDisplay{ID: f.ID, Text: f.Text, Kind: f.Kind, UpdatedAt: f.UpdatedAt}
+	}
+	return out, nil
+}
+
+func (a factsAdapter) Search(ctx context.Context, sessionID, query string, k int) ([]cli.FactDisplay, error) {
+	rows, err := a.store.RecallFacts(ctx, sessionID, query, k)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]cli.FactDisplay, len(rows))
+	for i, r := range rows {
+		out[i] = cli.FactDisplay{ID: r.ID, Text: r.Text, Kind: r.Kind, UpdatedAt: r.UpdatedAt}
+	}
+	return out, nil
+}
+
+func (a factsAdapter) Clear(ctx context.Context, sessionID string) (int, error) {
+	rows, err := a.store.ListFacts(ctx, sessionID, 100000)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, f := range rows {
+		if err := a.store.DeleteFact(ctx, f.ID); err == nil {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // mcpTokenPath returns the default OAuth token-store path under the user's

@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/caxqueiroz/cax/internal/tasks"
 	"github.com/caxqueiroz/cax/internal/theme"
 )
 
@@ -315,6 +316,9 @@ func (m model) renderStatusRow(_ int) string {
 	add("🧩", st.PluginCount)
 	add("🧠", st.LSPServerCount)
 	add("⚓", st.HookCount)
+	if n := len(st.RunningSubagents); n > 0 {
+		extras += mid + s.accent.Render("● agents") + " " + s.statusValue.Render(fmt.Sprintf("%d", n))
+	}
 
 	bufferLabel := s.statusLabel.Render("buffer") + " " + s.statusValue.Render(fmt.Sprintf("%d%%", pct))
 	gap := "   "
@@ -483,6 +487,56 @@ func (m *model) refreshViewport() {
 	m.viewport.GotoBottom()
 }
 
+// renderTaskPanel renders the sticky to-do panel above the input. Returns
+// "" when there are no tasks. Each task is one line: glyph + title. Long
+// lists are capped at 8 visible rows with a "+N more" trailer.
+func (m model) renderTaskPanel(width int) string {
+	if len(m.taskList) == 0 {
+		return ""
+	}
+	s := styles()
+	const maxRows = 8
+	visible := m.taskList
+	more := 0
+	if len(visible) > maxRows {
+		more = len(visible) - maxRows
+		visible = visible[:maxRows]
+	}
+	var done, total int
+	for _, t := range m.taskList {
+		total++
+		if t.Status == tasks.StatusCompleted {
+			done++
+		}
+	}
+	header := s.dim.Render(fmt.Sprintf("  tasks  %d/%d", done, total))
+	lines := []string{header}
+	for _, t := range visible {
+		glyph := "☐"
+		style := s.fg
+		switch t.Status {
+		case tasks.StatusInProgress:
+			glyph = "◐"
+			style = s.accent
+		case tasks.StatusCompleted:
+			glyph = "☑"
+			style = s.dim
+		case tasks.StatusFailed:
+			glyph = "✗"
+			style = s.dim
+		}
+		title := t.Title
+		if len(title) > width-6 && width > 10 {
+			title = title[:width-7] + "…"
+		}
+		lines = append(lines, "  "+style.Render(glyph+" "+title))
+	}
+	if more > 0 {
+		lines = append(lines, "  "+s.dim.Render(fmt.Sprintf("+%d more", more)))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // View composes the v2 layout: header box → blank → conversation box →
 // blank → status row → blank → message box → hint line. Falls back to a
 // plain-line layout when terminal height is too small.
@@ -504,11 +558,18 @@ func (m model) View() string {
 	}
 
 	// Layout: (welcome 8 rows when shown) + conv + blank + status + blank +
-	// message(input.Height()+2) + hint(0 or 1).
+	// (tasks panel rows when present) + message(input.Height()+2) + hint(0 or 1).
 	msgH := m.input.Height() + 2
 	used := 1 + 1 + 1 + msgH // blank + status + blank + msg
 	if hint != "" {
 		used++
+	}
+
+	tasksPanel := m.renderTaskPanel(width)
+	tasksRows := 0
+	if tasksPanel != "" {
+		tasksRows = strings.Count(tasksPanel, "\n") + 1 + 1 // panel + trailing blank
+		used += tasksRows
 	}
 
 	// Welcome card is the permanent top banner: 6 rows art + 2 rows padding
@@ -524,7 +585,11 @@ func (m model) View() string {
 	conv := m.renderConversationBox(width, convH)
 	welcome := m.renderWelcomeBlock(width)
 
-	parts := []string{welcome, "", conv, "", status, "", message}
+	parts := []string{welcome, "", conv, "", status, ""}
+	if tasksPanel != "" {
+		parts = append(parts, tasksPanel, "")
+	}
+	parts = append(parts, message)
 	// Footer: claude-code / pi.dev style dropdown sits BELOW the input when
 	// the user is composing a slash command. When no dropdown, the hint line
 	// shows the keybind reminders.

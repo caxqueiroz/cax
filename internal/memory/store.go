@@ -102,6 +102,17 @@ func (s *Store) migrate() error {
 		  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, cron_expr TEXT NOT NULL,
 		  prompt TEXT NOT NULL, channel TEXT NOT NULL, enabled INTEGER NOT NULL, last_run TIMESTAMP)`,
 		`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`,
+		// facts: mem0-style extracted atoms. Populated by the FactExtractor
+		// LLM when memory.mode != snippets. deleted_at is a soft-delete marker
+		// so the extractor can supersede contradicted facts without losing
+		// audit trail.
+		`CREATE TABLE IF NOT EXISTS facts (
+		  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, user_id TEXT,
+		  text TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '',
+		  source_msg_id INTEGER, created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL,
+		  deleted_at TIMESTAMP)`,
+		`CREATE INDEX IF NOT EXISTS idx_facts_session_live ON facts(session_id) WHERE deleted_at IS NULL`,
+		fmt.Sprintf(`CREATE VIRTUAL TABLE IF NOT EXISTS vec_facts USING vec0(fact_id INTEGER PRIMARY KEY, embedding float[%d])`, s.dim),
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
+	"github.com/caxqueiroz/cax/internal/bgproc"
 	"github.com/caxqueiroz/cax/internal/config"
 	"github.com/caxqueiroz/cax/internal/hooks"
 	"github.com/caxqueiroz/cax/internal/memory"
@@ -21,11 +23,44 @@ var gatedTools = map[string]bool{"Bash": true, "Write": true, "Edit": true}
 // shared by all hook closures. hooksDisp is nil-safe: when no plugin contributes
 // hooks the dispatcher itself is nil and all Dispatch calls are no-ops.
 type hookDeps struct {
-	store        *memory.Store
-	cfg          *config.Config
-	dialogFn     func() dive.Dialog // late-bound; reads the current dialog at fire time
-	summarizerFn func() memory.Summarizer
-	hooksDisp    *hooks.Dispatcher
+	store           *memory.Store
+	cfg             *config.Config
+	dialogFn        func() dive.Dialog // late-bound; reads the current dialog at fire time
+	summarizerFn    func() memory.Summarizer
+	factExtractorFn func() memory.FactExtractor // nil when memory.mode == snippets
+	hooksDisp       *hooks.Dispatcher
+	bgReg           *bgproc.Registry // nil-safe; powers completion-notice injection
+}
+
+// factsRecallToFacts converts the lightweight RecallFact hits returned by
+// RecallFacts into the fuller memory.Fact shape the extractor wants. Only
+// ID + Text are populated — that's all the extractor reads.
+func factsRecallToFacts(in []memory.RecalledFact) []memory.Fact {
+	out := make([]memory.Fact, len(in))
+	for i, r := range in {
+		out[i] = memory.Fact{ID: r.ID, Text: r.Text}
+	}
+	return out
+}
+
+// factsEnabled reports whether the agent should run the mem0-style extractor
+// + inject facts. memory.mode = snippets keeps the legacy raw-recall path.
+func (d *hookDeps) factsEnabled() bool {
+	if d.cfg == nil {
+		return false
+	}
+	mode := d.cfg.Memory.EffectiveMode()
+	return mode == config.MemoryModeFacts || mode == config.MemoryModeBoth
+}
+
+// snippetsEnabled reports whether the legacy snippet recall path should run.
+// modes: snippets, both → yes. facts → no.
+func (d *hookDeps) snippetsEnabled() bool {
+	if d.cfg == nil {
+		return true
+	}
+	mode := d.cfg.Memory.EffectiveMode()
+	return mode == config.MemoryModeSnippets || mode == config.MemoryModeBoth
 }
 
 // sessionID reads the session id placed in HookContext.Values by Handle.
@@ -97,15 +132,43 @@ func (d *hookDeps) preGeneration(ctx context.Context, hctx *dive.HookContext) er
 		if d.cfg != nil && d.cfg.Memory.RecallK > 0 {
 			k = d.cfg.Memory.RecallK
 		}
-		recalled, rerr := d.store.Recall(ctx, sid, query, k)
-		if rerr != nil {
-			slog.Warn("recall failed", "err", rerr, "session_id", sid)
-		} else if len(recalled) > 0 {
-			var sb strings.Builder
-			sb.WriteString("Relevant memories:\n")
-			for _, r := range recalled {
-				sb.WriteString("- " + strings.TrimSpace(r.Text) + "\n")
+		if d.snippetsEnabled() {
+			recalled, rerr := d.store.Recall(ctx, sid, query, k)
+			if rerr != nil {
+				slog.Warn("recall failed", "err", rerr, "session_id", sid)
+			} else if len(recalled) > 0 {
+				var sb strings.Builder
+				sb.WriteString("Relevant memories:\n")
+				for _, r := range recalled {
+					sb.WriteString("- " + strings.TrimSpace(r.Text) + "\n")
+				}
+				blocks = append(blocks, llm.NewTextContent(sb.String()))
 			}
+		}
+		if d.factsEnabled() {
+			facts, ferr := d.store.RecallFacts(ctx, sid, query, k)
+			if ferr != nil {
+				slog.Warn("fact recall failed", "err", ferr, "session_id", sid)
+			} else if len(facts) > 0 {
+				var sb strings.Builder
+				sb.WriteString("Known facts about the user:\n")
+				for _, f := range facts {
+					sb.WriteString("- " + strings.TrimSpace(f.Text) + "\n")
+				}
+				blocks = append(blocks, llm.NewTextContent(sb.String()))
+			}
+		}
+	}
+
+	if d.bgReg != nil {
+		notices := d.bgReg.DrainCompletionNotices()
+		if len(notices) > 0 {
+			var sb strings.Builder
+			sb.WriteString("Background tasks finished since last turn:\n")
+			for _, n := range notices {
+				sb.WriteString("- " + n + "\n")
+			}
+			sb.WriteString("Use bash_status(task_id) to see their output.")
 			blocks = append(blocks, llm.NewTextContent(sb.String()))
 		}
 	}
@@ -126,6 +189,17 @@ func (d *hookDeps) preToolUse(ctx context.Context, hctx *dive.HookContext) error
 		return nil
 	}
 	name := hctx.Tool.Name()
+
+	var input string
+	if hctx.Call != nil {
+		input = string(hctx.Call.Input)
+	}
+	slog.Info("tool: call",
+		"session_id", sessionID(hctx),
+		"tool", name,
+		"input", input,
+	)
+	hctx.Values["tool_call_start"] = time.Now()
 
 	if d.hooksDisp != nil {
 		payload := map[string]any{
@@ -167,6 +241,43 @@ func (d *hookDeps) preToolUse(ctx context.Context, hctx *dive.HookContext) error
 // AdditionalContext so the model sees it alongside the tool's own output.
 // Matches Claude Code's PostToolUse semantics.
 func (d *hookDeps) postToolUse(ctx context.Context, hctx *dive.HookContext) error {
+	if hctx.Tool != nil {
+		var elapsedMs int64
+		if start, ok := hctx.Values["tool_call_start"].(time.Time); ok {
+			elapsedMs = time.Since(start).Milliseconds()
+		}
+		var resultPreview string
+		var resultBytes int
+		var isErr bool
+		var goErr string
+		if hctx.Result != nil {
+			if hctx.Result.Error != nil {
+				goErr = hctx.Result.Error.Error()
+			}
+			if r := hctx.Result.Result; r != nil {
+				isErr = r.IsError
+				for _, c := range r.Content {
+					if c != nil {
+						resultPreview += c.Text
+					}
+				}
+				resultBytes = len(resultPreview)
+				if len(resultPreview) > 240 {
+					resultPreview = resultPreview[:240] + "…"
+				}
+			}
+		}
+		slog.Info("tool: result",
+			"session_id", sessionID(hctx),
+			"tool", hctx.Tool.Name(),
+			"is_error", isErr,
+			"go_err", goErr,
+			"bytes", resultBytes,
+			"elapsed_ms", elapsedMs,
+			"preview", resultPreview,
+		)
+	}
+
 	if d.hooksDisp == nil || hctx.Tool == nil {
 		return nil
 	}
@@ -241,6 +352,27 @@ func (d *hookDeps) postGeneration(ctx context.Context, hctx *dive.HookContext) e
 		// UI can render "✂ summarised N messages" after the bot reply.
 		if emit, ok := hctx.Values["emit_summarized"].(func(int, int)); ok {
 			emit(rep.ChunkMessages, rep.ChunkTokens)
+		}
+	}
+
+	// mem0-style fact extraction. Runs only when memory.mode != snippets.
+	// Best-effort: extractor failures degrade silently (memory is never
+	// allowed to block a turn). Uses the cheap model role wired by the agent.
+	if d.factsEnabled() && d.factExtractorFn != nil {
+		userInput, _ := hctx.Values["user_input"].(string)
+		if userInput != "" && reply != "" {
+			if ex := d.factExtractorFn(); ex != nil {
+				// Pull a few existing similar facts so the extractor can choose
+				// update/delete vs add instead of blindly duplicating.
+				existing, _ := d.store.RecallFacts(ctx, sid, userInput, 5)
+				ops, eerr := ex.Extract(ctx, userInput, reply, factsRecallToFacts(existing))
+				if eerr != nil {
+					slog.Warn("fact extract failed", "err", eerr, "session_id", sid)
+				} else if len(ops) > 0 {
+					a, u, del, fail := memory.ApplyFactOps(ctx, d.store, ops, memory.Fact{SessionID: sid})
+					slog.Info("facts: applied", "session_id", sid, "add", a, "update", u, "delete", del, "fail", fail)
+				}
+			}
 		}
 	}
 

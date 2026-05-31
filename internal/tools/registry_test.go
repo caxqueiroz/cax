@@ -9,7 +9,7 @@ import (
 func toolNames(t *testing.T, cfg config.ToolsConfig) map[string]bool {
 	t.Helper()
 	store := openTestStore(t)
-	tools, err := Registry(cfg, store)
+	tools, err := Registry(cfg, store, nil, nil)
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}

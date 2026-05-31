@@ -69,7 +69,7 @@ func TestLoadValidationErrors(t *testing.T) {
 		{
 			name: "unknown provider",
 			body: "providers:\n  - {name: cohere, model: c}\nembeddings: {provider: openai, dim: 1536}\nmemory: {db_path: /tmp/x.db}\n",
-			want: "unknown name",
+			want: "unknown type",
 		},
 		{
 			name: "provider missing model",

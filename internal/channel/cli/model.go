@@ -19,6 +19,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/creator"
 	"github.com/caxqueiroz/cax/internal/hooks"
 	"github.com/caxqueiroz/cax/internal/plugins"
+	"github.com/caxqueiroz/cax/internal/tasks"
 	"github.com/caxqueiroz/cax/internal/theme"
 )
 
@@ -42,6 +43,25 @@ type pluginBackend interface {
 	Disable(ctx context.Context, name string) error
 	Remove(ctx context.Context, name string) error
 	Rebuild(ctx context.Context) error
+}
+
+// factsBackend is the surface the /facts command drives. It exposes the
+// memory.Store's fact CRUD without forcing the CLI to import internal/memory.
+// cmd/cax wires a thin adapter over memory.Store; tests can leave it nil
+// (the command then reports facts aren't wired).
+type factsBackend interface {
+	List(ctx context.Context, sessionID string, limit int) ([]FactDisplay, error)
+	Search(ctx context.Context, sessionID, query string, k int) ([]FactDisplay, error)
+	Clear(ctx context.Context, sessionID string) (int, error)
+}
+
+// FactDisplay is the projection of memory.Fact the CLI renders. It lives in
+// the cli package so internal/memory is not imported here.
+type FactDisplay struct {
+	ID        int64
+	Text      string
+	Kind      string
+	UpdatedAt time.Time
 }
 
 // creatorBackend is the surface the /new wizard drives. Implementations call
@@ -112,6 +132,27 @@ type statusMsg struct {
 	err    error
 }
 
+// tasksUpdateMsg carries a fresh snapshot of the agent-maintained task list,
+// pushed by tasks.Board.Subscribe when the tasks_set tool fires.
+type tasksUpdateMsg struct {
+	tasks []tasks.Task
+}
+
+// allTasksTerminal reports whether every task in ts is completed or failed
+// (no pending, no in_progress). Used by the turnDoneMsg handler to decide
+// whether to auto-hide the panel.
+func allTasksTerminal(ts []tasks.Task) bool {
+	if len(ts) == 0 {
+		return false
+	}
+	for _, t := range ts {
+		if t.Status != tasks.StatusCompleted && t.Status != tasks.StatusFailed {
+			return false
+		}
+	}
+	return true
+}
+
 // submitMsg is produced internally when the user presses Enter; it carries the
 // submitted line so cli.go can dispatch it to the worker.
 type submitMsg struct{ line string }
@@ -152,6 +193,7 @@ type model struct {
 	sched   scheduleBackend // optional; nil when the scheduler isn't wired
 	plugins pluginBackend   // optional; nil when /plugin is not wired
 	creator creatorBackend  // optional; nil when /new wizard finalize is not wired
+	facts   factsBackend    // optional; nil when memory.mode == snippets or backend isn't wired
 
 	// wizard holds an in-progress /new flow. Nil when no /new is active —
 	// existing tests that drive submit() with plain text keep passing because
@@ -210,13 +252,17 @@ type model struct {
 	// helpOpen toggles the keybindings/commands overlay (Ctrl+/).
 	helpOpen bool
 
+	// taskList mirrors tasks.Board for live render in the sticky panel above
+	// the input. Empty list → panel is hidden. Populated by tasksUpdateMsg.
+	taskList []tasks.Task
+
 	ready bool // viewport sized at least once
 }
 
 func newModel(width, height int) model {
 	ta := textarea.New()
 	ta.Prompt = "❯ "
-	ta.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /reload /new"
+	ta.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /reload /new /facts"
 	ta.CharLimit = 4000
 	ta.ShowLineNumbers = false
 	// Disable Enter→newline so Enter falls through to model.Update's explicit
@@ -330,7 +376,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Completion dropdown intercepts navigation keys when visible.
 		if len(m.completion.matches) > 0 {
 			switch msg.Type {
-			case tea.KeyTab:
+			case tea.KeyTab, tea.KeyEnter:
+				// Enter on a visible dropdown accepts the highlighted match
+				// instead of submitting the partial text the user typed to
+				// trigger the dropdown. To submit, press Esc first (closes
+				// the dropdown) and then Enter — or press Enter twice
+				// (this accepts, then the next Enter submits the completed
+				// command).
 				if m.completion.idx < len(m.completion.matches) {
 					m.applyCompletion(m.completion.matches[m.completion.idx].name)
 				}
@@ -450,9 +502,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the hook condensed older messages).
 			m.history = append(m.history, historyEntry{who: "sys", text: "✂ " + msg.summarized})
 		}
+		// Auto-hide the task panel when every task reached a terminal state.
+		// Leaves the panel up if the model left work in_progress or pending —
+		// that's a signal something didn't get closed out, surface it.
+		if allTasksTerminal(m.taskList) {
+			m.taskList = nil
+		}
 		m.stream = ""
 		m.refreshViewport()
 		return m, requestStatus
+
+	case tasksUpdateMsg:
+		m.taskList = msg.tasks
+		m.refreshViewport()
+		return m, nil
 
 	case statusMsg:
 		if msg.err == nil {

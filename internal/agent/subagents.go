@@ -10,6 +10,8 @@ import (
 	"github.com/deepnoodle-ai/dive/llm"
 	"github.com/deepnoodle-ai/dive/subagent"
 	"github.com/deepnoodle-ai/dive/toolkit/orchestration"
+
+	"github.com/caxqueiroz/cax/internal/config"
 )
 
 // augmentTools layers sub-agent tools onto the assistant's tool set. MCP
@@ -54,12 +56,19 @@ func (a *Assistant) augmentTools(ctx context.Context, model llm.StreamingLLM) er
 	// Agent / TaskStop below.
 	parentTools := append([]dive.Tool(nil), a.tools...)
 
+	// Sub-agents default to the SUBAGENT_DEFAULT role (typically the cheap
+	// model). The dive.Agent type accepts llm.LLM; our router returns
+	// llm.StreamingLLM which embeds llm.LLM, so the assignment is implicit.
+	subagentModel := llm.LLM(model)
+	if a.router != nil {
+		subagentModel = a.router.For(config.ModelRoleSubagentDefault)
+	}
 	factory := func(_ context.Context, name string, def *subagent.Definition, pt []dive.Tool) (*dive.Agent, error) {
 		filtered := subagent.FilterTools(def, pt)
 		sa, ferr := dive.NewAgent(dive.AgentOptions{
 			Name:         name,
 			SystemPrompt: def.Prompt,
-			Model:        model,
+			Model:        subagentModel,
 			Tools:        filtered,
 		})
 		if ferr != nil {

@@ -14,20 +14,31 @@ import (
 
 // Config is the top-level cax configuration.
 type Config struct {
-	Persona    string           `yaml:"persona"`
-	Providers  []ProviderConfig `yaml:"providers"`
-	Embeddings EmbeddingsConfig `yaml:"embeddings"`
-	Memory     MemoryConfig     `yaml:"memory"`
-	Tools      ToolsConfig      `yaml:"tools"`
-	Subagents  SubagentsConfig  `yaml:"subagents"`
-	MCP        MCPConfig        `yaml:"mcp"`
-	Skills     SkillsConfig     `yaml:"skills"`
-	Plugins    PluginsConfig    `yaml:"plugins"`
-	Commands   CommandsConfig   `yaml:"commands"`
-	LSP        LSPConfig        `yaml:"lsp"`
-	CLI        CLIConfig        `yaml:"cli"`
-	Schedules  []ScheduleConfig `yaml:"schedules"`
+	Persona    string            `yaml:"persona"`
+	Providers  []ProviderConfig  `yaml:"providers"`
+	ModelRoles map[string]string `yaml:"model_roles,omitempty"` // role → provider name; see ModelRoleAgent/Cheap/...
+	Embeddings EmbeddingsConfig  `yaml:"embeddings"`
+	Memory     MemoryConfig      `yaml:"memory"`
+	Tools      ToolsConfig       `yaml:"tools"`
+	Subagents  SubagentsConfig   `yaml:"subagents"`
+	MCP        MCPConfig         `yaml:"mcp"`
+	Skills     SkillsConfig      `yaml:"skills"`
+	Plugins    PluginsConfig     `yaml:"plugins"`
+	Commands   CommandsConfig    `yaml:"commands"`
+	LSP        LSPConfig         `yaml:"lsp"`
+	CLI        CLIConfig         `yaml:"cli"`
+	Schedules  []ScheduleConfig  `yaml:"schedules"`
 }
+
+// Canonical role names for the model router. Roles unset in config fall back
+// to ModelRoleCheap, which falls back to ModelRoleAgent.
+const (
+	ModelRoleAgent           = "agent"            // primary user-facing agent loop
+	ModelRoleCheap           = "cheap"            // default for utility roles below
+	ModelRoleSummarizer      = "summarizer"       // rolling-summary LLM call
+	ModelRoleFactExtractor   = "fact_extractor"   // mem0-style fact extraction
+	ModelRoleSubagentDefault = "subagent_default" // dive sub-agent factory default
+)
 
 // CLIConfig configures the TUI channel. Theme is the initial theme name;
 // resolution falls back to ~/.cax/state.json, then a terminal-adapted
@@ -51,8 +62,16 @@ func (c CLIConfig) StreamingEnabled() bool {
 }
 
 // ProviderConfig configures one LLM provider in fallback order.
+//
+// Name is a UNIQUE LABEL used by ModelRoles to reference this entry.
+// Type is the provider implementation: "openai" | "bedrock". When omitted, it
+// defaults to Name lowercased so single-provider configs (the historical
+// shape: name: openai) keep working without a Type field. Multi-model
+// configs MUST set Type per entry — e.g. two openai entries named
+// "openai-main" and "openai-cheap" both with type: openai.
 type ProviderConfig struct {
-	Name      string `yaml:"name"` // "bedrock" | "openai"
+	Name      string `yaml:"name"`
+	Type      string `yaml:"type,omitempty"`
 	Model     string `yaml:"model"`
 	BaseURL   string `yaml:"base_url"`    // bedrock: KrakenD endpoint
 	TokenEnv  string `yaml:"token_env"`   // bedrock: env var holding the x-api-key value
@@ -62,6 +81,15 @@ type ProviderConfig struct {
 	// "enabled" (backward compatible). Set `enabled: false` to skip without
 	// deleting the entry.
 	Enabled *bool `yaml:"enabled,omitempty"`
+}
+
+// EffectiveType returns Type if set, else Name lowercased. Used by the
+// validator and BuildModel to dispatch on provider implementation.
+func (p ProviderConfig) EffectiveType() string {
+	if p.Type != "" {
+		return strings.ToLower(strings.TrimSpace(p.Type))
+	}
+	return strings.ToLower(strings.TrimSpace(p.Name))
 }
 
 // IsEnabled reports whether the provider should be wired into the fallback
@@ -81,18 +109,67 @@ type EmbeddingsConfig struct {
 }
 
 // MemoryConfig configures the SQLite memory store.
+//
+// Mode picks the retrieval strategy:
+//   - "snippets" (default): legacy behavior — embed raw turns, retrieve top-K
+//     snippets at each turn, plus a rolling LLM summary.
+//   - "facts": mem0-style — an LLM extractor runs each turn to derive discrete
+//     facts ("user prefers X"). PreGeneration injects retrieved facts instead
+//     of raw snippets. Snippet table still grows for back-compat but is not
+//     queried.
+//   - "both": extract facts AND retrieve snippets; inject both.
+//
+// FactExtractorRole names the model role (see ModelRole* constants) used by
+// the extractor. Defaults to ModelRoleFactExtractor → ModelRoleCheap. Pick a
+// cheap model — extraction runs every turn when Mode != snippets.
 type MemoryConfig struct {
-	DBPath      string `yaml:"db_path"`      // "~" expanded
-	TokenBudget int    `yaml:"token_budget"` // default 8000
-	RecallK     int    `yaml:"recall_k"`     // default 5
+	DBPath             string `yaml:"db_path"`      // "~" expanded
+	TokenBudget        int    `yaml:"token_budget"` // default 8000
+	RecallK            int    `yaml:"recall_k"`     // default 5
+	Mode               string `yaml:"mode,omitempty"`
+	FactExtractorRole  string `yaml:"fact_extractor_role,omitempty"`
+}
+
+// Memory mode constants.
+const (
+	MemoryModeSnippets = "snippets"
+	MemoryModeFacts    = "facts"
+	MemoryModeBoth     = "both"
+)
+
+// EffectiveMode returns Mode lowercased, defaulting to MemoryModeSnippets.
+func (m MemoryConfig) EffectiveMode() string {
+	mode := strings.ToLower(strings.TrimSpace(m.Mode))
+	switch mode {
+	case MemoryModeFacts, MemoryModeBoth:
+		return mode
+	default:
+		return MemoryModeSnippets
+	}
+}
+
+// EffectiveFactExtractorRole returns the configured role, defaulting to
+// ModelRoleFactExtractor.
+func (m MemoryConfig) EffectiveFactExtractorRole() string {
+	if r := strings.TrimSpace(m.FactExtractorRole); r != "" {
+		return r
+	}
+	return ModelRoleFactExtractor
 }
 
 // ToolsConfig toggles built-in tool groups.
+//
+// WorkspaceDirs scopes filesystem access for the Bash/Write/Edit/Read/Glob/
+// Grep tools. The FIRST entry is the writable workspace root; any additional
+// entries are added as read-only allowed paths (dive's PathValidator only
+// supports one writable root). Tilde and env vars are expanded. If empty,
+// cax defaults to [$HOME] so anything under the user's home is read/write.
 type ToolsConfig struct {
-	WebEnabled     bool `yaml:"web_enabled"`
-	FilesEnabled   bool `yaml:"files_enabled"`
-	BashEnabled    bool `yaml:"bash_enabled"`
-	RequireConfirm bool `yaml:"require_confirm"`
+	WebEnabled     bool     `yaml:"web_enabled"`
+	FilesEnabled   bool     `yaml:"files_enabled"`
+	BashEnabled    bool     `yaml:"bash_enabled"`
+	RequireConfirm bool     `yaml:"require_confirm"`
+	WorkspaceDirs  []string `yaml:"workspace_dirs"`
 }
 
 // SubagentsConfig configures sub-agent personas.
@@ -330,32 +407,44 @@ func expandHome(p string) (string, error) {
 	return p, nil
 }
 
+// Validate runs the same checks Load runs after parsing. Exposed so other
+// packages can validate a hand-built Config without re-parsing YAML.
+func Validate(cfg *Config) error { return validate(cfg) }
+
 func validate(cfg *Config) error {
 	if len(cfg.Providers) == 0 {
 		return fmt.Errorf("config: at least one provider is required")
 	}
 	enabledCount := 0
+	names := make(map[string]int, len(cfg.Providers))
 	for i, p := range cfg.Providers {
+		if p.Name == "" {
+			return fmt.Errorf("config: providers[%d]: name is required", i)
+		}
+		if prev, ok := names[p.Name]; ok {
+			return fmt.Errorf("config: providers[%d]: duplicate name %q (also at index %d)", i, p.Name, prev)
+		}
+		names[p.Name] = i
 		if !p.IsEnabled() {
 			// Disabled providers are skipped at build time; don't enforce
 			// field requirements so users can keep template entries.
 			continue
 		}
 		enabledCount++
-		switch p.Name {
+		switch p.EffectiveType() {
 		case "openai":
 			if p.APIKeyEnv == "" {
-				return fmt.Errorf("config: providers[%d] (openai): api_key_env is required", i)
+				return fmt.Errorf("config: providers[%d] (%s): api_key_env is required", i, p.Name)
 			}
 		case "bedrock":
 			if p.BaseURL == "" {
-				return fmt.Errorf("config: providers[%d] (bedrock): base_url is required", i)
+				return fmt.Errorf("config: providers[%d] (%s): base_url is required", i, p.Name)
 			}
 			if p.TokenEnv == "" {
-				return fmt.Errorf("config: providers[%d] (bedrock): token_env is required", i)
+				return fmt.Errorf("config: providers[%d] (%s): token_env is required", i, p.Name)
 			}
 		default:
-			return fmt.Errorf("config: providers[%d]: unknown name %q (want openai|bedrock)", i, p.Name)
+			return fmt.Errorf("config: providers[%d] (%s): unknown type %q (want openai|bedrock)", i, p.Name, p.EffectiveType())
 		}
 		if p.Model == "" {
 			return fmt.Errorf("config: providers[%d] (%s): model is required", i, p.Name)
@@ -363,6 +452,12 @@ func validate(cfg *Config) error {
 	}
 	if enabledCount == 0 {
 		return fmt.Errorf("config: at least one provider must be enabled (set enabled: true)")
+	}
+	// Validate model_roles point at known provider names.
+	for role, name := range cfg.ModelRoles {
+		if _, ok := names[name]; !ok {
+			return fmt.Errorf("config: model_roles[%q] references unknown provider name %q", role, name)
+		}
 	}
 	if cfg.Embeddings.Provider == "" {
 		return fmt.Errorf("config: embeddings.provider is required")
