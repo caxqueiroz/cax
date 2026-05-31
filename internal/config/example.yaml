@@ -57,6 +57,19 @@ memory:
   # which falls back to "cheap". Pick a cheap model — extraction runs every
   # turn when mode != snippets.
   # fact_extractor_role: fact_extractor
+  # External code-search ranker (e.g. github.com/townsendmerino/ken). When
+  # configured, every turn pre-loads ranked file chunks for the user's query
+  # so the agent doesn't have to grep around. {QUERY} / {REPO} are
+  # substituted per argv slot (no shell — safe with any user input).
+  # code_search:
+  #   command: ken
+  #   # {REPO} is resolved DYNAMICALLY per turn — no hardcoded path needed.
+  #   # Resolution order: /cwd override → absolute path in the user's prompt →
+  #   # walk-up from cax's launch CWD looking for .git/go.mod/etc. The
+  #   # repo_root field below is an ultimate fallback if every dynamic signal
+  #   # fails — usually leave it unset.
+  #   args: ["search", "{REPO}", "{QUERY}", "-k", "12", "--mode", "bm25"]
+  #   timeout_ms: 15000
 
 # Map model roles to provider names. The agent (main turn loop) always uses
 # the fallback chain. Utility roles default to "cheap" → "agent". To save

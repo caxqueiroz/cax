@@ -123,12 +123,39 @@ type EmbeddingsConfig struct {
 // the extractor. Defaults to ModelRoleFactExtractor → ModelRoleCheap. Pick a
 // cheap model — extraction runs every turn when Mode != snippets.
 type MemoryConfig struct {
-	DBPath             string `yaml:"db_path"`      // "~" expanded
-	TokenBudget        int    `yaml:"token_budget"` // default 8000
-	RecallK            int    `yaml:"recall_k"`     // default 5
-	Mode               string `yaml:"mode,omitempty"`
-	FactExtractorRole  string `yaml:"fact_extractor_role,omitempty"`
+	DBPath            string           `yaml:"db_path"`      // "~" expanded
+	TokenBudget       int              `yaml:"token_budget"` // default 8000
+	RecallK           int              `yaml:"recall_k"`     // default 5
+	Mode              string           `yaml:"mode,omitempty"`
+	FactExtractorRole string           `yaml:"fact_extractor_role,omitempty"`
+	CodeSearch        CodeSearchConfig `yaml:"code_search,omitempty"`
 }
+
+// CodeSearchConfig wires an external code-ranking command (e.g. ken-mcp's
+// `ken search`) into PreGeneration so every turn comes pre-loaded with the
+// most relevant file chunks — the agent doesn't have to grep around to find
+// what the user is asking about. Disabled when Command is empty.
+//
+// Args may contain two placeholders that are substituted PER-TURN:
+//   - "{QUERY}" → the user's last text (one argv slot; safe — no shell escaping)
+//   - "{REPO}"  → RepoRoot (tilde-expanded; defaults to cwd when empty)
+//
+// Example for ken (github.com/townsendmerino/ken):
+//
+//	command: ken
+//	args:    ["search", "{REPO}", "{QUERY}", "--mode", "hybrid", "--top", "8"]
+//	repo_root: .
+//	timeout_ms: 5000
+type CodeSearchConfig struct {
+	Command   string   `yaml:"command,omitempty"`
+	Args      []string `yaml:"args,omitempty"`
+	RepoRoot  string   `yaml:"repo_root,omitempty"`
+	TimeoutMs int      `yaml:"timeout_ms,omitempty"` // default 5000
+}
+
+// Enabled reports whether the code-search hook should fire. Cheap predicate
+// called on every PreGeneration; keep simple.
+func (c CodeSearchConfig) Enabled() bool { return strings.TrimSpace(c.Command) != "" }
 
 // Memory mode constants.
 const (

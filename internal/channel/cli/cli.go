@@ -14,6 +14,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/channel"
 	"github.com/caxqueiroz/cax/internal/hooks"
 	"github.com/caxqueiroz/cax/internal/plugins"
+	"github.com/caxqueiroz/cax/internal/projectroot"
 	"github.com/caxqueiroz/cax/internal/tasks"
 )
 
@@ -34,6 +35,7 @@ type CLI struct {
 	showStreaming  *bool       // optional override; nil leaves the model's default (true)
 	taskBoard      *tasks.Board
 	facts          factsBackend
+	projectRoot    *projectroot.Resolver
 }
 
 // Option configures a CLI.
@@ -113,6 +115,13 @@ func WithFacts(b factsBackend) Option {
 	return func(c *CLI) { c.facts = b }
 }
 
+// WithProjectRoot wires the shared projectroot.Resolver so the /cwd command
+// can update the active project root mid-session. The agent reads the same
+// resolver on every turn (currently for code_search injection).
+func WithProjectRoot(r *projectroot.Resolver) Option {
+	return func(c *CLI) { c.projectRoot = r }
+}
+
 // New builds a CLI channel with sensible defaults.
 func New(opts ...Option) *CLI {
 	c := &CLI{
@@ -140,6 +149,7 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	m.plugins = c.plugins
 	m.creator = c.creator
 	m.facts = c.facts
+	m.projectRoot = c.projectRoot
 	m.hookEntries = c.hookEntries
 	m.userCommands = c.userCommands
 	m.themeStateFile = c.themeStateFile

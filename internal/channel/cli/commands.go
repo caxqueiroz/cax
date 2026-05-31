@@ -79,8 +79,10 @@ func (m *model) handleCommand(line string) (string, bool, *creator.Wizard) {
 		return m.cmdCode(args), false, nil
 	case "facts":
 		return m.cmdFacts(args), false, nil
+	case "cwd":
+		return m.cmdCwd(args), false, nil
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about /permissions /code /facts", name), false, nil
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about /permissions /code /facts /cwd", name), false, nil
 	}
 }
 
@@ -849,4 +851,49 @@ func (m model) sessionID() string { return "cli" }
 // the boilerplate. Always pair with defer cancel().
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)
+}
+
+// cmdCwd manages the project-root override read by the agent on every turn.
+// Subcommands:
+//
+//	/cwd            — show the current resolved project root (override or auto)
+//	/cwd <path>     — pin the active project root (sticky until cleared)
+//	/cwd clear      — drop the override; auto-detection resumes
+//
+// The agent uses this for code_search and any other hook that needs to know
+// "what project is the user currently working in?". Auto-detection (walk-up
+// from launch CWD + path-in-query inference) covers most cases; /cwd is the
+// explicit escape hatch.
+func (m model) cmdCwd(args string) string {
+	if m.projectRoot == nil {
+		return "cwd: project-root resolver not wired"
+	}
+	args = strings.TrimSpace(args)
+	switch args {
+	case "":
+		// Show current state: override (if any) + auto-resolved fallback.
+		override := m.projectRoot.Override()
+		auto := m.projectRoot.For("") // no query → walk-up only
+		var b strings.Builder
+		if override != "" {
+			fmt.Fprintf(&b, "cwd: override → %s\n", override)
+		} else {
+			b.WriteString("cwd: no override set\n")
+		}
+		if auto != "" {
+			fmt.Fprintf(&b, "auto-detected from launch CWD → %s", auto)
+		} else {
+			b.WriteString("auto-detection found nothing")
+		}
+		return b.String()
+	case "clear", "off", "unset":
+		m.projectRoot.ClearOverride()
+		return "cwd: override cleared; auto-detection resumed"
+	default:
+		clean, err := m.projectRoot.SetOverride(args)
+		if err != nil {
+			return fmt.Sprintf("cwd: %s", err.Error())
+		}
+		return "cwd: pinned to " + clean
+	}
 }

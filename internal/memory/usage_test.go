@@ -1,14 +1,13 @@
 package memory
 
 import (
-	"context"
 	"testing"
 	"time"
 )
 
 func TestRecordUsageAndRollups(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	now := time.Now().UTC()
 
 	// Insert rows at controlled timestamps directly to test the windows precisely.
@@ -42,7 +41,7 @@ func TestRecordUsageAndRollups(t *testing.T) {
 
 func TestRecordUsageWritesRow(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	if err := st.RecordUsage(ctx, "openai", "gpt", 5, 6, UsageChat); err != nil {
 		t.Fatalf("RecordUsage: %v", err)
 	}

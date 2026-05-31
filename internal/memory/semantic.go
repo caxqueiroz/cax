@@ -2,8 +2,11 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/caxqueiroz/cax/internal/memory/memorydb"
 )
 
 // Recalled is a semantic-recall hit.
@@ -29,19 +32,18 @@ func (s *Store) AddMemory(ctx context.Context, sessionID, text string, sourceMsg
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var srcArg any
+	var srcMsgID sql.NullInt64
 	if sourceMsgID != 0 {
-		srcArg = sourceMsgID
+		srcMsgID = sql.NullInt64{Int64: sourceMsgID, Valid: true}
 	}
-	res, err := tx.ExecContext(ctx,
-		`INSERT INTO memories(session_id, text, source_msg_id, created_at) VALUES (?, ?, ?, ?)`,
-		sessionID, text, srcArg, time.Now().UTC())
+	memID, err := s.queries.WithTx(tx).InsertMemory(ctx, memorydb.InsertMemoryParams{
+		SessionID:   sessionID,
+		Text:        text,
+		SourceMsgID: srcMsgID,
+		CreatedAt:   time.Now().UTC(),
+	})
 	if err != nil {
 		return fmt.Errorf("insert memory: %w", err)
-	}
-	memID, err := res.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("memory last insert id: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO vec_memories(memory_id, embedding) VALUES (?, vec_f32(?))`,

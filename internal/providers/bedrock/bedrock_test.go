@@ -2,7 +2,6 @@ package bedrock
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -47,7 +46,7 @@ func TestGenerateBuildsNativeAnthropicRequest(t *testing.T) {
 		WithAPIKey("key-abc"),
 		WithMaxTokens(256),
 	)
-	resp, err := p.Generate(context.Background(),
+	resp, err := p.Generate(t.Context(),
 		llm.WithUserTextMessage("hi"),
 		llm.WithSystemPrompt("be brief"),
 	)
@@ -101,7 +100,7 @@ func TestGenerateReturnsHTTPErrorOnNon200(t *testing.T) {
 	defer srv.Close()
 
 	p := New(WithBaseURL(srv.URL), WithModel("m"), WithAPIKey("k"))
-	_, err := p.Generate(context.Background(), llm.WithUserTextMessage("hi"))
+	_, err := p.Generate(t.Context(), llm.WithUserTextMessage("hi"))
 	if err == nil {
 		t.Fatal("expected error on 429, got nil")
 	}
@@ -184,7 +183,7 @@ func TestStreamDecodesEventStream(t *testing.T) {
 	defer srv.Close()
 
 	p := New(WithBaseURL(srv.URL), WithModel("m"), WithAPIKey("k"))
-	it, err := p.Stream(context.Background(), llm.WithUserTextMessage("hi"))
+	it, err := p.Stream(t.Context(), llm.WithUserTextMessage("hi"))
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
@@ -228,7 +227,7 @@ func TestStreamReturnsHTTPErrorOnNon200(t *testing.T) {
 	defer srv.Close()
 
 	p := New(WithBaseURL(srv.URL), WithModel("m"), WithAPIKey("k"))
-	_, err := p.Stream(context.Background(), llm.WithUserTextMessage("hi"))
+	_, err := p.Stream(t.Context(), llm.WithUserTextMessage("hi"))
 	if err == nil {
 		t.Fatal("expected error on 503, got nil")
 	}

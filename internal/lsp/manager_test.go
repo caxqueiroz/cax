@@ -32,7 +32,7 @@ func newFakeServer(t *testing.T, handler jsonrpc2.Handler) *fakeServer {
 	clientConn := jsonrpc2.NewConn(jsonrpc2.NewStream(a))
 	serverConn := jsonrpc2.NewConn(jsonrpc2.NewStream(b))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	// The fake (server side) handles requests from the manager. The manager
 	// itself owns the Go call on the client side (notifyHandler) so we MUST
 	// NOT pre-call clientConn.Go here — Conn.Go starts exactly one read
@@ -61,7 +61,7 @@ func TestFakeServerInitializeRoundTrip(t *testing.T) {
 	// This standalone test calls clientConn.Call directly (no Manager), so we
 	// must spin the client's read loop here. The Manager's tests don't need
 	// this because bringUp installs the notifyHandler via conn.Go(ctx, ...).
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	fs.clientConn.Go(ctx, func(ctx context.Context, reply jsonrpc2.Replier, _ jsonrpc2.Request) error {
 		return reply(ctx, nil, nil)
@@ -105,7 +105,7 @@ func TestNewSpawnAndHandshake(t *testing.T) {
 			return fs.clientConn, func() error { return nil }, nil
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
 	infos, err := m.bringUp(ctx, []config.LSPServerConfig{{
@@ -138,7 +138,7 @@ func TestNewSpawnAndHandshake(t *testing.T) {
 }
 
 func TestNewEmpty(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	m, infos, err := New(ctx, nil, t.TempDir())
 	if err != nil {
 		t.Fatalf("New empty: %v", err)

@@ -50,7 +50,7 @@ func TestLifecycleDidOpenAndClose(t *testing.T) {
 			return fs.clientConn, func() error { return nil }, nil
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	if _, err := m.bringUp(ctx, []config.LSPServerConfig{{
 		Name: "fakegopls", Command: "/x", Languages: []string{"go"},

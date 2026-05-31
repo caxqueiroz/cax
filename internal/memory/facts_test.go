@@ -1,14 +1,13 @@
 package memory
 
 import (
-	"context"
 	"errors"
 	"testing"
 )
 
 func TestFacts_AddRecallUpdateDelete(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	id, err := st.AddFact(ctx, Fact{
 		SessionID: "s1",
@@ -59,7 +58,7 @@ func TestFacts_AddRecallUpdateDelete(t *testing.T) {
 
 func TestFacts_ScopedBySession(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := st.AddFact(ctx, Fact{SessionID: "alice", Text: "alice likes apples"}); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +77,7 @@ func TestFacts_ScopedBySession(t *testing.T) {
 
 func TestFacts_ListExcludesDeleted(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	id1, _ := st.AddFact(ctx, Fact{SessionID: "s", Text: "fact one"})
 	_, _ = st.AddFact(ctx, Fact{SessionID: "s", Text: "fact two"})
 	if err := st.DeleteFact(ctx, id1); err != nil {

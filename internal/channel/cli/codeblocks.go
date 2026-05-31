@@ -1,6 +1,9 @@
 package cli
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // codeBlock is one fenced ``` block inside a markdown reply.
 type codeBlock struct {
@@ -19,10 +22,10 @@ func extractCodeBlocks(md string) []codeBlock {
 	var buf strings.Builder
 	for _, line := range lines {
 		trim := strings.TrimRight(line, "\r")
-		if strings.HasPrefix(strings.TrimSpace(trim), "```") {
+		if after, ok := strings.CutPrefix(strings.TrimSpace(trim), "```"); ok {
 			if !in {
 				in = true
-				lang = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(trim), "```"))
+				lang = strings.TrimSpace(after)
 				buf.Reset()
 				continue
 			}
@@ -48,9 +51,9 @@ func extractCodeBlocks(md string) []codeBlock {
 // lastBotEntry returns the most recent assistant historyEntry, or nil if the
 // history is empty / has no bot replies.
 func (m model) lastBotEntry() *historyEntry {
-	for i := len(m.history) - 1; i >= 0; i-- {
-		if m.history[i].who == "bot" {
-			h := m.history[i]
+	for _, h := range slices.Backward(m.history) {
+		if h.who == "bot" {
+
 			return &h
 		}
 	}

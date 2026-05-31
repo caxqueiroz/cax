@@ -1,13 +1,12 @@
 package memory
 
 import (
-	"context"
 	"testing"
 )
 
 func TestAppendAndLoadWindowChronological(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	for i, txt := range []string{"one", "two", "three"} {
 		role := RoleUser
 		if i%2 == 1 {
@@ -37,7 +36,7 @@ func TestAppendAndLoadWindowChronological(t *testing.T) {
 
 func TestLoadWindowRespectsBudgetNewestFirst(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	// Each message is 4 tokens (Tokens set explicitly). Budget 8 fits exactly 2 newest.
 	for _, txt := range []string{"aaa", "bbb", "ccc"} {
 		if _, err := st.AppendMessage(ctx, Message{SessionID: "s1", Role: RoleUser, Content: txt, Tokens: 4}); err != nil {
@@ -59,7 +58,7 @@ func TestLoadWindowRespectsBudgetNewestFirst(t *testing.T) {
 
 func TestLoadWindowSessionScoped(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := st.AppendMessage(ctx, Message{SessionID: "s1", Role: RoleUser, Content: "mine", Tokens: 1}); err != nil {
 		t.Fatal(err)
 	}

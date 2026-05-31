@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/caxqueiroz/cax/internal/memory/memorydb"
 )
 
 // Fact is a mem0-style atom — a single declarative statement extracted from
@@ -52,21 +54,22 @@ func (s *Store) AddFact(ctx context.Context, f Fact) (int64, error) {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var srcArg any
+	var srcMsgID sql.NullInt64
 	if f.SourceMsgID != 0 {
-		srcArg = f.SourceMsgID
+		srcMsgID = sql.NullInt64{Int64: f.SourceMsgID, Valid: true}
 	}
 	now := time.Now().UTC()
-	res, err := tx.ExecContext(ctx,
-		`INSERT INTO facts(session_id, user_id, text, kind, source_msg_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		f.SessionID, f.UserID, f.Text, f.Kind, srcArg, now, now)
+	id, err := s.queries.WithTx(tx).InsertFact(ctx, memorydb.InsertFactParams{
+		SessionID:   f.SessionID,
+		UserID:      sql.NullString{String: f.UserID, Valid: f.UserID != ""},
+		Text:        f.Text,
+		Kind:        f.Kind,
+		SourceMsgID: srcMsgID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
 	if err != nil {
 		return 0, fmt.Errorf("insert fact: %w", err)
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("fact last insert: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO vec_facts(fact_id, embedding) VALUES (?, vec_f32(?))`,
@@ -98,13 +101,14 @@ func (s *Store) UpdateFact(ctx context.Context, id int64, newText string) error 
 		return fmt.Errorf("begin update tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.ExecContext(ctx,
-		`UPDATE facts SET text = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
-		newText, time.Now().UTC(), id)
+	rows, err := s.queries.WithTx(tx).UpdateFactText(ctx, memorydb.UpdateFactTextParams{
+		Text:      newText,
+		UpdatedAt: time.Now().UTC(),
+		ID:        id,
+	})
 	if err != nil {
 		return fmt.Errorf("update fact: %w", err)
 	}
-	rows, _ := res.RowsAffected()
 	if rows == 0 {
 		return sql.ErrNoRows
 	}
@@ -128,9 +132,11 @@ func (s *Store) DeleteFact(ctx context.Context, id int64) error {
 		return fmt.Errorf("begin delete tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE facts SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`,
-		time.Now().UTC(), id); err != nil {
+	now := time.Now().UTC()
+	if err := s.queries.WithTx(tx).SoftDeleteFact(ctx, memorydb.SoftDeleteFactParams{
+		DeletedAt: &now,
+		ID:        id,
+	}); err != nil {
 		return fmt.Errorf("soft-delete fact: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM vec_facts WHERE fact_id = ?`, id); err != nil {
@@ -184,25 +190,25 @@ func (s *Store) ListFacts(ctx context.Context, sessionID string, limit int) ([]F
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, COALESCE(user_id, ''), text, kind,
-		        COALESCE(source_msg_id, 0), created_at, updated_at
-		   FROM facts
-		  WHERE session_id = ? AND deleted_at IS NULL
-		  ORDER BY updated_at DESC
-		  LIMIT ?`, sessionID, limit)
+	rows, err := s.queries.ListFacts(ctx, memorydb.ListFactsParams{
+		SessionID: sessionID,
+		Limit:     int64(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list facts: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-	var out []Fact
-	for rows.Next() {
-		var f Fact
-		if err := rows.Scan(&f.ID, &f.SessionID, &f.UserID, &f.Text, &f.Kind,
-			&f.SourceMsgID, &f.CreatedAt, &f.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan fact: %w", err)
-		}
-		out = append(out, f)
+	out := make([]Fact, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Fact{
+			ID:          r.ID,
+			SessionID:   r.SessionID,
+			UserID:      r.UserID,
+			Text:        r.Text,
+			Kind:        r.Kind,
+			SourceMsgID: r.SourceMsgID,
+			CreatedAt:   r.CreatedAt,
+			UpdatedAt:   r.UpdatedAt,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }

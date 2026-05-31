@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"os/exec"
 	"strings"
 	"time"
@@ -173,9 +174,7 @@ func buildEnvelope(ev Event, payload any) ([]byte, error) {
 		"hook_event_name": string(ev),
 	}
 	if m, ok := payload.(map[string]any); ok {
-		for k, v := range m {
-			env[k] = v
-		}
+		maps.Copy(env, m)
 	}
 	return json.Marshal(env)
 }

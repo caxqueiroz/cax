@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"testing"
 
 	"github.com/caxqueiroz/cax/internal/memory"
@@ -10,7 +9,7 @@ import (
 func TestFactExtractor_ParsesJSONArray(t *testing.T) {
 	model := newScriptLLM(`[{"op":"add","text":"user prefers Go"},{"op":"update","id":3,"text":"user works at NewCo"}]`)
 	e := NewFactExtractor(model)
-	ops, err := e.Extract(context.Background(), "I just switched to NewCo and love Go.", "Got it!", []memory.Fact{
+	ops, err := e.Extract(t.Context(), "I just switched to NewCo and love Go.", "Got it!", []memory.Fact{
 		{ID: 3, Text: "user works at OldCo"},
 	})
 	if err != nil {
@@ -30,7 +29,7 @@ func TestFactExtractor_ParsesJSONArray(t *testing.T) {
 func TestFactExtractor_AcceptsCodeFences(t *testing.T) {
 	model := newScriptLLM("```json\n[{\"op\":\"add\",\"text\":\"a fact\"}]\n```")
 	e := NewFactExtractor(model)
-	ops, err := e.Extract(context.Background(), "hi", "hello", nil)
+	ops, err := e.Extract(t.Context(), "hi", "hello", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -42,7 +41,7 @@ func TestFactExtractor_AcceptsCodeFences(t *testing.T) {
 func TestFactExtractor_EmptyArray(t *testing.T) {
 	model := newScriptLLM("[]")
 	e := NewFactExtractor(model)
-	ops, err := e.Extract(context.Background(), "hi", "hello", nil)
+	ops, err := e.Extract(t.Context(), "hi", "hello", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -54,7 +53,7 @@ func TestFactExtractor_EmptyArray(t *testing.T) {
 func TestFactExtractor_DropsMalformedOps(t *testing.T) {
 	model := newScriptLLM(`[{"op":"add","text":"good"},{"op":"unknown"},{"op":"update"}]`)
 	e := NewFactExtractor(model)
-	ops, err := e.Extract(context.Background(), "x", "y", nil)
+	ops, err := e.Extract(t.Context(), "x", "y", nil)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
@@ -66,7 +65,7 @@ func TestFactExtractor_DropsMalformedOps(t *testing.T) {
 func TestFactExtractor_RejectsInvalidJSON(t *testing.T) {
 	model := newScriptLLM("not json at all")
 	e := NewFactExtractor(model)
-	_, err := e.Extract(context.Background(), "x", "y", nil)
+	_, err := e.Extract(t.Context(), "x", "y", nil)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}

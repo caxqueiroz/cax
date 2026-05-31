@@ -46,7 +46,7 @@ func openTestStore(t *testing.T) *memory.Store {
 func callRecall(t *testing.T, tool dive.Tool, input map[string]any) string {
 	t.Helper()
 	raw, _ := json.Marshal(input)
-	res, err := tool.Call(context.Background(), json.RawMessage(raw))
+	res, err := tool.Call(t.Context(), json.RawMessage(raw))
 	if err != nil {
 		t.Fatalf("recall call: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestRecallTool_NameAndSchema(t *testing.T) {
 
 func TestRecallTool_ReturnsStoredMemory(t *testing.T) {
 	store := openTestStore(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	if err := store.AddMemory(ctx, "s1", "the cat sat on the mat", 0); err != nil {
 		t.Fatalf("add memory: %v", err)
 	}

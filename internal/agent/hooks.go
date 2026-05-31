@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/config"
 	"github.com/caxqueiroz/cax/internal/hooks"
 	"github.com/caxqueiroz/cax/internal/memory"
+	"github.com/caxqueiroz/cax/internal/projectroot"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
 )
@@ -29,7 +31,8 @@ type hookDeps struct {
 	summarizerFn    func() memory.Summarizer
 	factExtractorFn func() memory.FactExtractor // nil when memory.mode == snippets
 	hooksDisp       *hooks.Dispatcher
-	bgReg           *bgproc.Registry // nil-safe; powers completion-notice injection
+	bgReg           *bgproc.Registry      // nil-safe; powers completion-notice injection
+	projectRoot     *projectroot.Resolver // nil-safe; resolved per-turn for code_search
 }
 
 // factsRecallToFacts converts the lightweight RecallFact hits returned by
@@ -156,6 +159,23 @@ func (d *hookDeps) preGeneration(ctx context.Context, hctx *dive.HookContext) er
 					sb.WriteString("- " + strings.TrimSpace(f.Text) + "\n")
 				}
 				blocks = append(blocks, llm.NewTextContent(sb.String()))
+			}
+		}
+		// External code-search ranker (e.g. ken-mcp's `ken search`). When
+		// configured, the user's query is fed to the command and ranked file
+		// chunks are injected as context — the agent doesn't have to grep
+		// around to find what the user is asking about. Best-effort.
+		if d.cfg != nil && d.cfg.Memory.CodeSearch.Enabled() {
+			var repo string
+			if d.projectRoot != nil {
+				repo = d.projectRoot.For(query)
+			}
+			ranked, rerr := runCodeSearch(ctx, d.cfg.Memory.CodeSearch, query, repo)
+			if rerr != nil {
+				slog.Warn("code_search failed", "err", rerr, "session_id", sid, "repo", repo)
+			} else if ranked != "" {
+				slog.Info("code_search hit", "session_id", sid, "repo", repo, "bytes", len(ranked))
+				blocks = append(blocks, llm.NewTextContent("Relevant code from "+repo+" (ranked):\n"+ranked))
 			}
 		}
 	}
@@ -387,9 +407,9 @@ func (d *hookDeps) postGeneration(ctx context.Context, hctx *dive.HookContext) e
 
 // lastUserText returns the text of the last user message in msgs, or "".
 func lastUserText(msgs []*llm.Message) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == llm.User {
-			if t := strings.TrimSpace(msgs[i].Text()); t != "" {
+	for _, msg := range slices.Backward(msgs) {
+		if msg.Role == llm.User {
+			if t := strings.TrimSpace(msg.Text()); t != "" {
 				return t
 			}
 		}

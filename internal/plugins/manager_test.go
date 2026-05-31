@@ -50,7 +50,7 @@ func TestManagerLoadAggregates(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "plugins.json")
 	m := New(config.PluginsConfig{Enabled: true, Dirs: []string{dirA, dirB}}, statePath, nil)
 
-	contrib, infos, err := m.Load(context.Background())
+	contrib, infos, err := m.Load(t.Context())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestManagerLoadDisabledDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(config.PluginsConfig{Enabled: true, Dirs: []string{dir}}, statePath, nil)
-	contrib, infos, _ := m.Load(context.Background())
+	contrib, infos, _ := m.Load(t.Context())
 	if len(contrib.SkillDirs) != 0 || len(contrib.Commands) != 0 {
 		t.Errorf("disabled plugin should contribute nothing: %+v", contrib)
 	}
@@ -92,7 +92,7 @@ func TestManagerLoadSkipsDirsWithoutManifest(t *testing.T) {
 	}
 	statePath := filepath.Join(t.TempDir(), "plugins.json")
 	m := New(config.PluginsConfig{Enabled: true, Dirs: []string{dir}}, statePath, nil)
-	contrib, infos, err := m.Load(context.Background())
+	contrib, infos, err := m.Load(t.Context())
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestManagerLoadDisabledViaConfig(t *testing.T) {
 	writeFullPlugin(t, dir, "alpha")
 	statePath := filepath.Join(t.TempDir(), "plugins.json")
 	m := New(config.PluginsConfig{Enabled: false, Dirs: []string{dir}}, statePath, nil)
-	contrib, infos, _ := m.Load(context.Background())
+	contrib, infos, _ := m.Load(t.Context())
 	if len(infos) != 0 || len(contrib.SkillDirs) != 0 {
 		t.Errorf("disabled subsystem should return empty: infos=%+v contrib=%+v", infos, contrib)
 	}
@@ -125,7 +125,7 @@ func TestManagerInstallCallsCloneAndEnables(t *testing.T) {
 			[]byte(`{"name":"gamma","version":"0.0.1"}`), 0o644)
 	}
 	m := New(config.PluginsConfig{Enabled: true, Dirs: []string{root}}, statePath, clone)
-	info, err := m.Install(context.Background(), "https://github.com/x/gamma", "gamma")
+	info, err := m.Install(t.Context(), "https://github.com/x/gamma", "gamma")
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestManagerInstallRefusesExisting(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "plugins.json")
 	clone := func(context.Context, string, string) error { return nil }
 	m := New(config.PluginsConfig{Enabled: true, Dirs: []string{root}}, statePath, clone)
-	if _, err := m.Install(context.Background(), "git://x", "alpha"); err == nil {
+	if _, err := m.Install(t.Context(), "git://x", "alpha"); err == nil {
 		t.Fatal("expected error when target dir already exists")
 	}
 }

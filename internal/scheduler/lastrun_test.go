@@ -14,7 +14,7 @@ import (
 )
 
 func TestJobRecordsLastRun(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	dbPath := filepath.Join(t.TempDir(), "mem.db")
 
 	st, err := memory.Open(config.MemoryConfig{

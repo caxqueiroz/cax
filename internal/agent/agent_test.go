@@ -26,7 +26,7 @@ func buildTestAssistant(t *testing.T, reply string) (*Assistant, *scriptLLM) {
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true, BashEnabled: true, RequireConfirm: false},
 	}
-	a, err := Build(context.Background(), cfg, store, model, nil, nil, nil)
+	a, err := Build(t.Context(), cfg, store, model, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -73,11 +73,11 @@ func TestBuildAcceptsSkillsAndMCPTools(t *testing.T) {
 
 	mcpTool := &fakeMCPTool{name: "mcp_echo"}
 
-	a, err := Build(context.Background(), cfg, store, model, skillRes, []dive.Tool{mcpTool}, nil)
+	a, err := Build(t.Context(), cfg, store, model, skillRes, []dive.Tool{mcpTool}, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	st, err := a.Status(context.Background())
+	st, err := a.Status(t.Context())
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
@@ -111,11 +111,11 @@ func TestBuildIncludesLSPToolsAndStatus(t *testing.T) {
 		{Name: "gopls", Languages: []string{"go"}, Running: true},
 		{Name: "pyright", Languages: []string{"python"}, Running: false, LastError: "not found"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, nil, lspTools, lspInfos, nil, nil, nil, nil, nil)
+	a, err := BuildWithMCPInfos(t.Context(), cfg, store, model, nil, nil, nil, lspTools, lspInfos, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	st, err := a.Status(context.Background())
+	st, err := a.Status(t.Context())
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
@@ -154,11 +154,11 @@ func TestStatusReportsMCPServerNames(t *testing.T) {
 		{Name: "git", Transport: "stdio", Connected: true, ToolCount: 3},
 		{Name: "github", Transport: "http", Connected: false, LastError: "auth"},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model, nil, nil, infos, nil, nil, nil, nil, nil, nil, nil)
+	a, err := BuildWithMCPInfos(t.Context(), cfg, store, model, nil, nil, infos, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	st, err := a.Status(context.Background())
+	st, err := a.Status(t.Context())
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
@@ -182,11 +182,11 @@ func TestRebuildSwapsTools(t *testing.T) {
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
-	a, err := Build(context.Background(), cfg, store, model, nil, []dive.Tool{&fakeMCPTool{name: "old_tool"}}, nil)
+	a, err := Build(t.Context(), cfg, store, model, nil, []dive.Tool{&fakeMCPTool{name: "old_tool"}}, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	st1, _ := a.Status(context.Background())
+	st1, _ := a.Status(t.Context())
 	hasOld := false
 	for _, n := range st1.ToolNames {
 		if n == "old_tool" {
@@ -196,10 +196,10 @@ func TestRebuildSwapsTools(t *testing.T) {
 	if !hasOld {
 		t.Fatalf("expected old_tool in initial status: %v", st1.ToolNames)
 	}
-	if err := a.Rebuild(context.Background(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil, nil, nil, nil, nil); err != nil {
+	if err := a.Rebuild(t.Context(), cfg, nil, []dive.Tool{&fakeMCPTool{name: "new_tool"}}, nil, nil, nil, nil, nil); err != nil {
 		t.Fatalf("Rebuild: %v", err)
 	}
-	st2, _ := a.Status(context.Background())
+	st2, _ := a.Status(t.Context())
 	hasNew, hasOld2 := false, false
 	for _, n := range st2.ToolNames {
 		if n == "new_tool" {
@@ -226,12 +226,12 @@ func TestBuildWithMCPInfos_AppendsCreatorToolsToRegistry(t *testing.T) {
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
 	creatorTool := &fakeMCPTool{name: "create_skill"}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model,
+	a, err := BuildWithMCPInfos(t.Context(), cfg, store, model,
 		nil, nil, nil, nil, nil, nil, []dive.Tool{creatorTool}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildWithMCPInfos: %v", err)
 	}
-	st, err := a.Status(context.Background())
+	st, err := a.Status(t.Context())
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
@@ -254,16 +254,16 @@ func TestRebuild_PicksUpNewCreatorTools(t *testing.T) {
 		Memory:  config.MemoryConfig{TokenBudget: 8000, RecallK: 5},
 		Tools:   config.ToolsConfig{FilesEnabled: true},
 	}
-	a, err := BuildWithMCPInfos(context.Background(), cfg, store, model,
+	a, err := BuildWithMCPInfos(t.Context(), cfg, store, model,
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildWithMCPInfos: %v", err)
 	}
 	creatorTool := &fakeMCPTool{name: "create_command"}
-	if err := a.Rebuild(context.Background(), cfg, nil, nil, nil, nil, nil, nil, []dive.Tool{creatorTool}); err != nil {
+	if err := a.Rebuild(t.Context(), cfg, nil, nil, nil, nil, nil, nil, []dive.Tool{creatorTool}); err != nil {
 		t.Fatalf("Rebuild: %v", err)
 	}
-	st, _ := a.Status(context.Background())
+	st, _ := a.Status(t.Context())
 	var found bool
 	for _, n := range st.ToolNames {
 		if n == "create_command" {
@@ -294,7 +294,7 @@ func TestBuild_AssemblesAgentWithTools(t *testing.T) {
 
 func TestHandle_EmitsTextAndReturnsReply(t *testing.T) {
 	a, _ := buildTestAssistant(t, "hello from cax")
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var events []channel.StreamEvent
 	var mu sync.Mutex
@@ -327,7 +327,7 @@ func TestHandle_EmitsTextAndReturnsReply(t *testing.T) {
 
 func TestHandle_PersistsTurn(t *testing.T) {
 	a, _ := buildTestAssistant(t, "persisted reply")
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := a.Handle(ctx, channel.Message{SessionID: "s2", Text: "remember this"}, func(channel.StreamEvent) {}); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestHandle_PersistsTurn(t *testing.T) {
 
 func TestStatus_ReportsModelAndTools(t *testing.T) {
 	a, _ := buildTestAssistant(t, "ok")
-	st, err := a.Status(context.Background())
+	st, err := a.Status(t.Context())
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestStatus_ReportsModelAndTools(t *testing.T) {
 func TestSummarizer_UsesModel(t *testing.T) {
 	a, model := buildTestAssistant(t, "ignored")
 	model.replyText = "a concise summary"
-	got, err := a.Summarizer().Summarize(context.Background(), "", []memory.Message{
+	got, err := a.Summarizer().Summarize(t.Context(), "", []memory.Message{
 		{Role: memory.RoleUser, Content: "long conversation about cats"},
 		{Role: memory.RoleAssistant, Content: "yes cats are great"},
 	})

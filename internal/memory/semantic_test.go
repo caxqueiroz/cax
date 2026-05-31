@@ -1,13 +1,12 @@
 package memory
 
 import (
-	"context"
 	"testing"
 )
 
 func TestAddMemoryAndRecallOrdering(t *testing.T) {
 	st := openTestStore(t, 16)
-	ctx := context.Background()
+	ctx := t.Context()
 	texts := []string{
 		"the cat sat on the mat",
 		"quantum chromodynamics lattice gauge theory",
@@ -43,7 +42,7 @@ func TestAddMemoryAndRecallOrdering(t *testing.T) {
 
 func TestRecallRespectsK(t *testing.T) {
 	st := openTestStore(t, 16)
-	ctx := context.Background()
+	ctx := t.Context()
 	for i, txt := range []string{"alpha", "beta", "gamma", "delta", "epsilon"} {
 		if err := st.AddMemory(ctx, "s1", txt, int64(i+1)); err != nil {
 			t.Fatal(err)
@@ -60,7 +59,7 @@ func TestRecallRespectsK(t *testing.T) {
 
 func TestRecallSessionScoped(t *testing.T) {
 	st := openTestStore(t, 16)
-	ctx := context.Background()
+	ctx := t.Context()
 	if err := st.AddMemory(ctx, "s1", "mine secret", 1); err != nil {
 		t.Fatal(err)
 	}

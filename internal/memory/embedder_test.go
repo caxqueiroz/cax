@@ -36,7 +36,7 @@ func hashVector(s string, dim int) []float32 {
 	v := make([]float32, dim)
 	const prime = uint64(1099511628211)
 	h := uint64(1469598103934665603)
-	for j := 0; j < dim; j++ {
+	for j := range dim {
 		for k := 0; k < len(s); k++ {
 			h ^= uint64(s[k])
 			h *= prime
@@ -85,7 +85,7 @@ func TestVectorString(t *testing.T) {
 
 func TestFakeEmbedderDeterministic(t *testing.T) {
 	fe := newFakeEmbedder(8)
-	a, err := fe.Embed(context.Background(), []string{"hello", "hello", "world"})
+	a, err := fe.Embed(t.Context(), []string{"hello", "hello", "world"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestOpenAIEmbedderRequestAndParse(t *testing.T) {
 	defer srv.Close()
 
 	e := NewOpenAIEmbedder(srv.URL, "text-embedding-3-small", "sk-test", 3)
-	vecs, err := e.Embed(context.Background(), []string{"first", "second"})
+	vecs, err := e.Embed(t.Context(), []string{"first", "second"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestOpenAIEmbedderHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := NewOpenAIEmbedder(srv.URL, "m", "k", 3)
-	if _, err := e.Embed(context.Background(), []string{"x"}); err == nil {
+	if _, err := e.Embed(t.Context(), []string{"x"}); err == nil {
 		t.Fatal("expected error on HTTP 429")
 	}
 }

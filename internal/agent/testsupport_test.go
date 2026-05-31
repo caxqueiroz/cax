@@ -79,7 +79,7 @@ func (f *scriptLLM) Stream(_ context.Context, _ ...llm.Option) (llm.StreamIterat
 
 func TestScriptLLMStreamsReply(t *testing.T) {
 	f := newScriptLLM("hello world")
-	it, err := f.Stream(context.Background())
+	it, err := f.Stream(t.Context())
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +17,7 @@ func buildWithSubagents(t *testing.T, dir string) *Assistant {
 		Tools:     config.ToolsConfig{FilesEnabled: true},
 		Subagents: config.SubagentsConfig{Enabled: true, Dirs: []string{dir}},
 	}
-	a, err := Build(context.Background(), cfg, store, newScriptLLM("ok"), nil, nil, nil)
+	a, err := Build(t.Context(), cfg, store, newScriptLLM("ok"), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/caxqueiroz/cax/internal/memory/memorydb"
 )
 
 // Summarizer condenses old messages into a single summary string. priorSummary
@@ -33,39 +35,39 @@ func (s *Store) MaybeSummarize(ctx context.Context, sessionID string, sum Summar
 	// Latest existing summary for this session (its covers_up_to bound + text).
 	var coveredUpTo int64
 	var priorSummary string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT covers_up_to_msg_id, summary_text FROM summaries
-		    WHERE session_id = ? ORDER BY id DESC LIMIT 1`, sessionID).Scan(&coveredUpTo, &priorSummary)
+	prior, err := s.queries.LatestSummary(ctx, sessionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		coveredUpTo = 0
 		priorSummary = ""
 	} else if err != nil {
 		return SummarizeReport{}, fmt.Errorf("read prior summary: %w", err)
+	} else {
+		coveredUpTo = prior.CoversUpToMsgID
+		priorSummary = prior.SummaryText
 	}
 
 	// Load all uncovered messages, newest-first, to compute the budget split.
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, session_id, role, content, token_count, created_at
-		   FROM messages WHERE session_id = ? AND id > ? ORDER BY id DESC`, sessionID, coveredUpTo)
+	rows, err := s.queries.MessagesAfter(ctx, memorydb.MessagesAfterParams{
+		SessionID: sessionID,
+		ID:        coveredUpTo,
+	})
 	if err != nil {
 		return SummarizeReport{}, fmt.Errorf("query uncovered messages: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
 
-	var newestFirst []Message
+	newestFirst := make([]Message, 0, len(rows))
 	total := 0
-	for rows.Next() {
-		var m Message
-		var role string
-		if err := rows.Scan(&m.ID, &m.SessionID, &role, &m.Content, &m.Tokens, &m.CreatedAt); err != nil {
-			return SummarizeReport{}, fmt.Errorf("scan uncovered: %w", err)
+	for _, r := range rows {
+		m := Message{
+			ID:        r.ID,
+			SessionID: r.SessionID,
+			Role:      Role(r.Role),
+			Content:   r.Content,
+			Tokens:    int(r.TokenCount),
+			CreatedAt: r.CreatedAt,
 		}
-		m.Role = Role(role)
 		newestFirst = append(newestFirst, m)
 		total += m.Tokens
-	}
-	if err := rows.Err(); err != nil {
-		return SummarizeReport{}, fmt.Errorf("uncovered rows: %w", err)
 	}
 
 	if total <= tokenBudget {
@@ -102,9 +104,12 @@ func (s *Store) MaybeSummarize(ctx context.Context, sessionID string, sum Summar
 		return SummarizeReport{}, fmt.Errorf("summarize chunk: %w", err)
 	}
 	coveredUpTo = chunk[len(chunk)-1].ID // highest id in the summarized chunk
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO summaries(session_id, summary_text, covers_up_to_msg_id, created_at) VALUES (?, ?, ?, ?)`,
-		sessionID, text, coveredUpTo, time.Now().UTC()); err != nil {
+	if err := s.queries.InsertSummary(ctx, memorydb.InsertSummaryParams{
+		SessionID:       sessionID,
+		SummaryText:     text,
+		CoversUpToMsgID: coveredUpTo,
+		CreatedAt:       time.Now().UTC(),
+	}); err != nil {
 		return SummarizeReport{}, fmt.Errorf("insert summary: %w", err)
 	}
 	return SummarizeReport{ChunkTokens: chunkTokens, ChunkMessages: len(chunk), CoversUpToID: coveredUpTo}, nil

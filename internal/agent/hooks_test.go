@@ -76,7 +76,7 @@ func (d *hookDeps) setDialog(dlg dive.Dialog) {
 
 func TestPreGeneration_InjectsSummaryAndRecall(t *testing.T) {
 	store := newTestStore(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	// Seed prior history + a memory so LoadWindow/Recall find something.
 	if _, err := store.AppendMessage(ctx, memory.Message{SessionID: "s1", Role: memory.RoleUser, Content: "remember the launch code is 1234", Tokens: 8}); err != nil {
 		t.Fatalf("append: %v", err)
@@ -114,7 +114,7 @@ func TestPreToolUse_DeniesWhenDialogRejects(t *testing.T) {
 	})
 	hctx.Call = llm.NewToolUseContent("call_1", "Bash", []byte(`{"command":"ls"}`))
 
-	err := deps.preToolUse(context.Background(), hctx)
+	err := deps.preToolUse(t.Context(), hctx)
 	if err == nil {
 		t.Fatal("expected denial error for Bash with DenyAllDialog")
 	}
@@ -131,7 +131,7 @@ func TestPreToolUse_AllowsReadOnlyTool(t *testing.T) {
 	})
 	hctx.Call = llm.NewToolUseContent("call_2", "Read", []byte(`{}`))
 
-	if err := deps.preToolUse(context.Background(), hctx); err != nil {
+	if err := deps.preToolUse(t.Context(), hctx); err != nil {
 		t.Fatalf("read-only tool should not be gated: %v", err)
 	}
 }
@@ -149,7 +149,7 @@ func TestPreGenerationDispatchAbortsOnBlock(t *testing.T) {
 	hctx.Values["session_id"] = "s1"
 	hctx.Messages = []*llm.Message{llm.NewUserTextMessage("hello")}
 
-	err := deps.preGeneration(context.Background(), hctx)
+	err := deps.preGeneration(t.Context(), hctx)
 	if err == nil {
 		t.Fatal("expected preGeneration to abort on hook block, got nil")
 	}
@@ -174,7 +174,7 @@ func TestPreToolUseDispatchReturnsUserFeedbackOnBlock(t *testing.T) {
 	})
 	hctx.Call = llm.NewToolUseContent("call_1", "Bash", []byte(`{"command":"rm -rf /"}`))
 
-	err := deps.preToolUse(context.Background(), hctx)
+	err := deps.preToolUse(t.Context(), hctx)
 	if err == nil {
 		t.Fatal("expected preToolUse to deny on hook block, got nil")
 	}
@@ -203,7 +203,7 @@ func TestPostToolUseDispatchAppendsAdditionalContext(t *testing.T) {
 	})
 	hctx.Call = llm.NewToolUseContent("call_2", "Bash", []byte(`{"command":"ls"}`))
 
-	if err := deps.postToolUse(context.Background(), hctx); err != nil {
+	if err := deps.postToolUse(t.Context(), hctx); err != nil {
 		t.Fatalf("postToolUse must never return error (informational), got %v", err)
 	}
 	if !strings.Contains(hctx.AdditionalContext, "audit ok") {
@@ -214,7 +214,7 @@ func TestPostToolUseDispatchAppendsAdditionalContext(t *testing.T) {
 func TestPostGeneration_PersistsTurnAndUsage(t *testing.T) {
 	store := newTestStore(t)
 	deps := testDeps(t, store)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	hctx := dive.NewHookContext()
 	hctx.Values["session_id"] = "s1"

@@ -19,6 +19,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/creator"
 	"github.com/caxqueiroz/cax/internal/hooks"
 	"github.com/caxqueiroz/cax/internal/plugins"
+	"github.com/caxqueiroz/cax/internal/projectroot"
 	"github.com/caxqueiroz/cax/internal/tasks"
 	"github.com/caxqueiroz/cax/internal/theme"
 )
@@ -190,10 +191,11 @@ type model struct {
 	running   []string // running subagent names (live)
 	lastErr   string
 
-	sched   scheduleBackend // optional; nil when the scheduler isn't wired
-	plugins pluginBackend   // optional; nil when /plugin is not wired
-	creator creatorBackend  // optional; nil when /new wizard finalize is not wired
-	facts   factsBackend    // optional; nil when memory.mode == snippets or backend isn't wired
+	sched       scheduleBackend       // optional; nil when the scheduler isn't wired
+	plugins     pluginBackend         // optional; nil when /plugin is not wired
+	creator     creatorBackend        // optional; nil when /new wizard finalize is not wired
+	facts       factsBackend          // optional; nil when memory.mode == snippets or backend isn't wired
+	projectRoot *projectroot.Resolver // optional; powers /cwd + per-turn code_search root
 
 	// wizard holds an in-progress /new flow. Nil when no /new is active —
 	// existing tests that drive submit() with plain text keep passing because
@@ -324,10 +326,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		// Conversation viewport inner width = boxOuter − 2 (border) − 4 (padX*2).
 		// Message textarea inner width = boxOuter − 2 (border) − 2 (padX*2).
-		boxOuter := msg.Width - 2*len(leftIndent)
-		if boxOuter < 16 {
-			boxOuter = 16
-		}
+		boxOuter := max(msg.Width-2*len(leftIndent), 16)
 		m.viewport.Width = max(1, boxOuter-2-4)
 		m.input.SetWidth(max(1, boxOuter-2-2))
 		m.resizeInput()
@@ -699,10 +698,7 @@ func (m model) advanceWizard(line string) (tea.Model, tea.Cmd) {
 // the hint line is dropped). The viewport sits INSIDE the box, so its
 // height is boxOuterHeight - 2 (border) - 2 (Padding(1,2) rows).
 func (m *model) resizeInput() {
-	h := m.input.LineCount()
-	if h < 1 {
-		h = 1
-	}
+	h := max(m.input.LineCount(), 1)
 	if h > 6 {
 		h = 6
 	}
@@ -729,15 +725,9 @@ func (m *model) resizeInput() {
 		}
 	}
 	fixed += footer
-	boxOuter := m.height - fixed - h
-	if boxOuter < 4 {
-		boxOuter = 4
-	}
+	boxOuter := max(m.height-fixed-h, 4)
 	// Viewport inside the box: subtract 2 border (top+bottom) + 2 padY (top+bottom).
-	vpH := boxOuter - 2 - 2
-	if vpH < 1 {
-		vpH = 1
-	}
+	vpH := max(boxOuter-2-2, 1)
 	m.viewport.Height = vpH
 }
 

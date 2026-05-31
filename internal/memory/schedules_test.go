@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -10,7 +9,7 @@ import (
 
 func TestUpsertAndListSchedules(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	sc := config.ScheduleConfig{Name: "daily", Cron: "0 9 * * *", Prompt: "good morning", Channel: "cli", Enabled: true}
 	if err := st.UpsertSchedule(ctx, sc); err != nil {
@@ -48,7 +47,7 @@ func TestUpsertAndListSchedules(t *testing.T) {
 
 func TestSetLastRun(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{Name: "job", Cron: "* * * * *", Prompt: "p", Channel: "cli", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}

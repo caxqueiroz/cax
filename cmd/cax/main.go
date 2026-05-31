@@ -25,6 +25,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/mcp"
 	"github.com/caxqueiroz/cax/internal/memory"
 	"github.com/caxqueiroz/cax/internal/plugins"
+	"github.com/caxqueiroz/cax/internal/projectroot"
 	"github.com/caxqueiroz/cax/internal/scheduler"
 	"github.com/caxqueiroz/cax/internal/skills"
 	"github.com/caxqueiroz/cax/internal/tasks"
@@ -187,6 +188,8 @@ func run() error {
 		return fmt.Errorf("build model router: %w", rErr)
 	}
 
+	projectRoot := projectroot.New()
+
 	assistant, err := agent.BuildAgent(ctx, cfg, store, agent.BuildOptions{
 		Model:        model,
 		Router:       router,
@@ -199,6 +202,7 @@ func run() error {
 		CreatorTools: creatorTools,
 		TaskBoard:    taskBoard,
 		BgReg:        bgReg,
+		ProjectRoot:  projectRoot,
 	})
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
@@ -249,6 +253,7 @@ func run() error {
 		cli.WithShowStreaming(cfg.CLI.StreamingEnabled()),
 		cli.WithTaskBoard(taskBoard),
 		cli.WithFacts(factsAdapter{store: store}),
+		cli.WithProjectRoot(projectRoot),
 	)
 	statusFn := func(ctx context.Context) (channel.Status, error) {
 		st, err := assistant.Status(ctx)

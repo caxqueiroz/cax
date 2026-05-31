@@ -32,6 +32,11 @@ tasks:
     cmds:
       - go install {{.CMD}}
 
+  sqlc:
+    desc: Regenerate internal/memory/memorydb from sql/schema.sql + sql/queries
+    cmds:
+      - sqlc generate
+
   test:
     desc: Run all tests
     cmds:

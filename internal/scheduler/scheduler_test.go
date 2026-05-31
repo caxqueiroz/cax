@@ -62,7 +62,7 @@ func TestNewStartStop(t *testing.T) {
 }
 
 func TestLoadRegistersEnabledAndRunsJob(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	st := openStore(t)
 
 	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
@@ -118,7 +118,7 @@ func TestLoadRegistersEnabledAndRunsJob(t *testing.T) {
 }
 
 func TestJobRecoversPanic(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	st := openStore(t)
 
 	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
@@ -149,7 +149,7 @@ func TestJobRecoversPanic(t *testing.T) {
 }
 
 func TestLoadSkipsInvalidCron(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	st := openStore(t)
 
 	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{
@@ -177,7 +177,7 @@ func TestLoadSkipsInvalidCron(t *testing.T) {
 }
 
 func TestReloadReflectsStoreChanges(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	st := openStore(t)
 
 	if err := st.UpsertSchedule(ctx, config.ScheduleConfig{

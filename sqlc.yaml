@@ -1,0 +1,39 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    queries: "sql/queries"
+    schema: "sql/schema.sql"
+    gen:
+      go:
+        package: "memorydb"
+        out: "internal/memory/memorydb"
+        sql_package: "database/sql"
+        emit_interface: true
+        emit_json_tags: false
+        emit_prepared_queries: false
+        emit_methods_with_db_argument: false
+        # Map sqlite TIMESTAMP to time.Time so the generated structs match
+        # the public types in the memory package.
+        overrides:
+          - column: "messages.created_at"
+            go_type: "time.Time"
+          - column: "summaries.created_at"
+            go_type: "time.Time"
+          - column: "memories.created_at"
+            go_type: "time.Time"
+          - column: "usage.ts"
+            go_type: "time.Time"
+          - column: "facts.created_at"
+            go_type: "time.Time"
+          - column: "facts.updated_at"
+            go_type: "time.Time"
+          - column: "facts.deleted_at"
+            go_type:
+              type: "Time"
+              import: "time"
+              pointer: true
+          - column: "schedules.last_run"
+            go_type:
+              type: "Time"
+              import: "time"
+              pointer: true

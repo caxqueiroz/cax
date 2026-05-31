@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -65,7 +64,7 @@ func TestStats(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := st.AppendMessage(ctx, Message{SessionID: "s1", Role: RoleUser, Content: "hi", Tokens: 1}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}

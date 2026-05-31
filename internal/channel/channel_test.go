@@ -27,7 +27,7 @@ func TestContractTypesCompile(t *testing.T) {
 		emit(StreamEvent{Type: "text", Text: m.Text})
 		return Reply{Text: m.Text}, nil
 	}
-	r, err := h(context.Background(), Message{Text: "echo"}, sink)
+	r, err := h(t.Context(), Message{Text: "echo"}, sink)
 	if err != nil || r.Text != "echo" {
 		t.Fatalf("handler failed: r=%+v err=%v", r, err)
 	}
@@ -52,7 +52,7 @@ func TestContractTypesCompile(t *testing.T) {
 		RunningSubagents: []string{"plan"},
 	}
 	var sf StatusFunc = func(ctx context.Context) (Status, error) { return status, nil }
-	gotStatus, err := sf(context.Background())
+	gotStatus, err := sf(t.Context())
 	if err != nil || gotStatus.Provider != "bedrock" || gotStatus.Usage.Day.OutputTokens != 2 {
 		t.Fatalf("status func failed: %+v err=%v", gotStatus, err)
 	}

@@ -31,7 +31,7 @@ func setupManagerWithFake(t *testing.T, handler jsonrpc2.Handler) (*Manager, str
 			return fs.clientConn, func() error { return nil }, nil
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	if _, err := m.bringUp(ctx, []config.LSPServerConfig{{
 		Name: "fakegopls", Command: "/x", Languages: []string{"go"},
@@ -62,7 +62,7 @@ func callTool(t *testing.T, tool dive.Tool, args map[string]any) *dive.ToolResul
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	res, err := tool.Call(context.Background(), json.RawMessage(raw))
+	res, err := tool.Call(t.Context(), json.RawMessage(raw))
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestLSPDiagnosticsCachedFromNotification(t *testing.T) {
 			return fs.clientConn, func() error { return nil }, nil
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	if _, err := m.bringUp(ctx, []config.LSPServerConfig{{
 		Name: "fakegopls", Command: "/x", Languages: []string{"go"},

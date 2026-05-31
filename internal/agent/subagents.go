@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sort"
 
 	"github.com/deepnoodle-ai/dive"
@@ -45,9 +46,7 @@ func (a *Assistant) augmentTools(ctx context.Context, model llm.StreamingLLM) er
 		if lerr != nil {
 			slog.Warn("subagent file loader failed", "dirs", dirs, "err", lerr)
 		} else {
-			for name, def := range loaded {
-				defs[name] = def
-			}
+			maps.Copy(defs, loaded)
 		}
 	}
 

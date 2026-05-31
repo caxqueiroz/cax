@@ -13,6 +13,7 @@ import (
 	_ "modernc.org/sqlite/vec" // registers the vec0 virtual table + vec_* functions
 
 	"github.com/caxqueiroz/cax/internal/config"
+	"github.com/caxqueiroz/cax/internal/memory/memorydb"
 )
 
 // Role is a message author role.
@@ -46,9 +47,13 @@ type Stats struct {
 	MemoryCount  int
 }
 
-// Store is the SQLite-backed memory store.
+// Store is the SQLite-backed memory store. queries is the sqlc-generated
+// type-safe surface for every non-vec0 operation; vec_memories / vec_facts
+// inserts and cosine-distance lookups stay on the raw *sql.DB because sqlc
+// can't parse the vec0 virtual-table syntax.
 type Store struct {
 	db       *sql.DB
+	queries  *memorydb.Queries
 	embedder Embedder
 	dim      int
 	dbPath   string
@@ -71,7 +76,7 @@ func Open(cfg config.MemoryConfig, embedder Embedder) (*Store, error) {
 	// One connection keeps :memory: DBs coherent and avoids vec0 cross-conn issues.
 	db.SetMaxOpenConns(1)
 
-	s := &Store{db: db, embedder: embedder, dim: dim, dbPath: cfg.DBPath}
+	s := &Store{db: db, queries: memorydb.New(db), embedder: embedder, dim: dim, dbPath: cfg.DBPath}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -125,21 +130,32 @@ func (s *Store) migrate() error {
 // verifyMeta writes embed model+dim on first run, or fails fast if the stored dim
 // differs from the configured embedder's dim.
 func (s *Store) verifyMeta() error {
-	var storedDim string
-	err := s.db.QueryRow(`SELECT value FROM meta WHERE key='embed_dim'`).Scan(&storedDim)
+	ctx := context.Background()
+	storedDim, err := s.queries.GetMeta(ctx, "embed_dim")
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		if _, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES ('embed_model', ?), ('embed_dim', ?)`,
-			s.embedder.Model(), strconv.Itoa(s.dim)); err != nil {
-			return fmt.Errorf("write meta: %w", err)
+		if err := s.queries.SetMeta(ctx, memorydb.SetMetaParams{
+			Key:   "embed_model",
+			Value: sql.NullString{String: s.embedder.Model(), Valid: true},
+		}); err != nil {
+			return fmt.Errorf("write meta model: %w", err)
+		}
+		if err := s.queries.SetMeta(ctx, memorydb.SetMetaParams{
+			Key:   "embed_dim",
+			Value: sql.NullString{String: strconv.Itoa(s.dim), Valid: true},
+		}); err != nil {
+			return fmt.Errorf("write meta dim: %w", err)
 		}
 		return nil
 	case err != nil:
 		return fmt.Errorf("read meta: %w", err)
 	}
-	n, convErr := strconv.Atoi(storedDim)
+	if !storedDim.Valid {
+		return fmt.Errorf("memory: stored embed_dim is NULL")
+	}
+	n, convErr := strconv.Atoi(storedDim.String)
 	if convErr != nil {
-		return fmt.Errorf("parse stored embed_dim %q: %w", storedDim, convErr)
+		return fmt.Errorf("parse stored embed_dim %q: %w", storedDim.String, convErr)
 	}
 	if n != s.dim {
 		return fmt.Errorf("memory: embed dim mismatch: stored %d, configured %d (re-embed migration required)", n, s.dim)
@@ -158,12 +174,16 @@ func (s *Store) Close() error {
 // Stats returns DB file size plus message and memory counts.
 func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	var st Stats
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages`).Scan(&st.MessageCount); err != nil {
+	mc, err := s.queries.CountMessages(ctx)
+	if err != nil {
 		return Stats{}, fmt.Errorf("count messages: %w", err)
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM memories`).Scan(&st.MemoryCount); err != nil {
+	st.MessageCount = int(mc)
+	memc, err := s.queries.CountMemories(ctx)
+	if err != nil {
 		return Stats{}, fmt.Errorf("count memories: %w", err)
 	}
+	st.MemoryCount = int(memc)
 	if info, err := os.Stat(s.dbPath); err == nil {
 		st.DBSizeBytes = info.Size()
 	} // :memory: and unstat-able paths -> 0, not an error

@@ -20,8 +20,8 @@ type createSkillInput struct {
 type createAgentInput struct {
 	Name            string   `json:"name" description:"Kebab-case agent name."`
 	Description     string   `json:"description" description:"One-line description for the agent frontmatter."`
-	Tools           []string `json:"tools,omitempty" description:"Optional allow-list of tool names available to the agent."`
-	DisallowedTools []string `json:"disallowed_tools,omitempty" description:"Optional deny-list of tool names blocked for the agent."`
+	Tools           []string `json:"tools,omitzero" description:"Optional allow-list of tool names available to the agent."`
+	DisallowedTools []string `json:"disallowed_tools,omitzero" description:"Optional deny-list of tool names blocked for the agent."`
 	Body            string   `json:"body" description:"Markdown system-prompt body."`
 	Overwrite       bool     `json:"overwrite,omitempty" description:"Replace an existing file with the same name."`
 }

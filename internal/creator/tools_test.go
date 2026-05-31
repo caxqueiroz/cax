@@ -40,7 +40,7 @@ func callTool(t *testing.T, tools []dive.Tool, name string, inputJSON string) *d
 	t.Helper()
 	for _, tl := range tools {
 		if tl.Name() == name {
-			res, err := tl.Call(context.Background(), []byte(inputJSON))
+			res, err := tl.Call(t.Context(), []byte(inputJSON))
 			if err != nil {
 				t.Fatalf("tool %s call: %v", name, err)
 			}

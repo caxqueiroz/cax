@@ -61,7 +61,7 @@ func TestFallbackAdvancesOnRetryableError(t *testing.T) {
 	p2 := &fakeLLM{name: "p2", genResp: okResp("from p2")}
 	f := &fallbackLLM{providers: []llm.StreamingLLM{p1, p2}}
 
-	resp, err := f.Generate(context.Background(), llm.WithUserTextMessage("hi"))
+	resp, err := f.Generate(t.Context(), llm.WithUserTextMessage("hi"))
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestFallbackStopsOnNonRetryableError(t *testing.T) {
 	p2 := &fakeLLM{name: "p2", genResp: okResp("from p2")}
 	f := &fallbackLLM{providers: []llm.StreamingLLM{p1, p2}}
 
-	_, err := f.Generate(context.Background(), llm.WithUserTextMessage("hi"))
+	_, err := f.Generate(t.Context(), llm.WithUserTextMessage("hi"))
 	if !errors.Is(err, nonRetryable) {
 		t.Fatalf("err = %v, want the non-retryable error", err)
 	}
@@ -97,7 +97,7 @@ func TestFallbackAllFailReturnsLastError(t *testing.T) {
 	p2 := &fakeLLM{name: "p2", genErr: last}
 	f := &fallbackLLM{providers: []llm.StreamingLLM{p1, p2}}
 
-	_, err := f.Generate(context.Background(), llm.WithUserTextMessage("hi"))
+	_, err := f.Generate(t.Context(), llm.WithUserTextMessage("hi"))
 	if !errors.Is(err, last) {
 		t.Fatalf("err = %v, want last error %v", err, last)
 	}
@@ -111,7 +111,7 @@ func TestFallbackStreamAdvancesOnRetryableError(t *testing.T) {
 	p2 := &fakeLLM{name: "p2", stream: emptyIterator{}}
 	f := &fallbackLLM{providers: []llm.StreamingLLM{p1, p2}}
 
-	it, err := f.Stream(context.Background(), llm.WithUserTextMessage("hi"))
+	it, err := f.Stream(t.Context(), llm.WithUserTextMessage("hi"))
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}

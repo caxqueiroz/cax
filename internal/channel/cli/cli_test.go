@@ -48,7 +48,7 @@ func TestRunTurnEmitsStreamAndDone(t *testing.T) {
 	}
 
 	c := New(WithSessionID("s"))
-	c.runTurn(context.Background(), send, handle, status, "hi")
+	c.runTurn(t.Context(), send, handle, status, "hi")
 
 	var gotDelta, gotDone, gotStatus, gotSubStart bool
 	for _, m := range sent {

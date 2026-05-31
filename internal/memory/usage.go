@@ -2,8 +2,11 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/caxqueiroz/cax/internal/memory/memorydb"
 )
 
 // UsageKind classifies a usage row.
@@ -35,9 +38,14 @@ type UsageRollup struct {
 
 // RecordUsage appends a usage row stamped at now (UTC).
 func (s *Store) RecordUsage(ctx context.Context, provider, model string, in, out int, kind UsageKind) error {
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO usage(ts, provider, model, input_tokens, output_tokens, kind) VALUES (?, ?, ?, ?, ?, ?)`,
-		time.Now().UTC(), provider, model, in, out, string(kind)); err != nil {
+	if err := s.queries.RecordUsage(ctx, memorydb.RecordUsageParams{
+		Ts:           time.Now().UTC(),
+		Provider:     sql.NullString{String: provider, Valid: provider != ""},
+		Model:        sql.NullString{String: model, Valid: model != ""},
+		InputTokens:  int64(in),
+		OutputTokens: int64(out),
+		Kind:         string(kind),
+	}); err != nil {
 		return fmt.Errorf("insert usage: %w", err)
 	}
 	return nil
@@ -47,14 +55,14 @@ func (s *Store) RecordUsage(ctx context.Context, provider, model string, in, out
 func (s *Store) UsageRollups(ctx context.Context) (UsageRollup, error) {
 	now := time.Now().UTC()
 	sumSince := func(since time.Time) (UsageTotals, error) {
-		var tot UsageTotals
-		err := s.db.QueryRowContext(ctx,
-			`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0)
-			   FROM usage WHERE ts >= ?`, since).Scan(&tot.InputTokens, &tot.OutputTokens)
+		row, err := s.queries.UsageRollup(ctx, since)
 		if err != nil {
 			return UsageTotals{}, fmt.Errorf("sum usage since %s: %w", since, err)
 		}
-		return tot, nil
+		// sqlc infers int64 for both, but the COALESCE expression returns
+		// an INT64 in modernc.org/sqlite; safe to int() truncate for the
+		// public surface.
+		return UsageTotals{InputTokens: int(row.InputTokens), OutputTokens: int(row.OutputTokens)}, nil
 	}
 	day, err := sumSince(now.Add(-24 * time.Hour))
 	if err != nil {

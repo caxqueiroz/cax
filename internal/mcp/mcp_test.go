@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -10,7 +9,7 @@ import (
 
 // TestConnectEmptyReturnsNoTools is the trivial path — no servers, no work.
 func TestConnectEmptyReturnsNoTools(t *testing.T) {
-	tools, infos, err := Connect(context.Background(), nil, filepath.Join(t.TempDir(), "tokens.json"))
+	tools, infos, err := Connect(t.Context(), nil, filepath.Join(t.TempDir(), "tokens.json"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -26,7 +25,7 @@ func TestConnectStdioFailureRecorded(t *testing.T) {
 		{Name: "bogus", Command: "/nonexistent/binary-xyz", Args: []string{"--help"}},
 	}
 	tokens := filepath.Join(t.TempDir(), "tokens.json")
-	tools, infos, err := Connect(context.Background(), servers, tokens)
+	tools, infos, err := Connect(t.Context(), servers, tokens)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -49,7 +48,7 @@ func TestConnectStdioFailureRecorded(t *testing.T) {
 func TestConnectUnknownTransport(t *testing.T) {
 	servers := []config.MCPServerConfig{{Name: "blank"}}
 	tokens := filepath.Join(t.TempDir(), "tokens.json")
-	_, infos, err := Connect(context.Background(), servers, tokens)
+	_, infos, err := Connect(t.Context(), servers, tokens)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

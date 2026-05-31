@@ -12,13 +12,14 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/caxqueiroz/cax/internal/bgproc"
 	"github.com/caxqueiroz/cax/internal/channel"
 	"github.com/caxqueiroz/cax/internal/config"
 	"github.com/caxqueiroz/cax/internal/hooks"
 	"github.com/caxqueiroz/cax/internal/lsp"
 	"github.com/caxqueiroz/cax/internal/mcp"
 	"github.com/caxqueiroz/cax/internal/memory"
-	"github.com/caxqueiroz/cax/internal/bgproc"
+	"github.com/caxqueiroz/cax/internal/projectroot"
 	"github.com/caxqueiroz/cax/internal/skills"
 	"github.com/caxqueiroz/cax/internal/tasks"
 	"github.com/caxqueiroz/cax/internal/tools"
@@ -94,6 +95,7 @@ type BuildOptions struct {
 	CreatorTools []dive.Tool
 	TaskBoard    *tasks.Board
 	BgReg        *bgproc.Registry
+	ProjectRoot  *projectroot.Resolver
 }
 
 // Build is the legacy thin entrypoint kept for back-compat. New callers
@@ -184,6 +186,10 @@ func BuildAgent(
 	creatorTools := opts.CreatorTools
 	taskBoard := opts.TaskBoard
 	bgReg := opts.BgReg
+	projectRoot := opts.ProjectRoot
+	if projectRoot == nil {
+		projectRoot = projectroot.New()
+	}
 
 	builtins, err := tools.Registry(cfg.Tools, store, taskBoard, bgReg)
 	if err != nil {
@@ -244,8 +250,9 @@ func BuildAgent(
 			}
 			return NewFactExtractor(a.router.For(role))
 		},
-		hooksDisp: hooksDisp,
-		bgReg:     bgReg,
+		hooksDisp:   hooksDisp,
+		bgReg:       bgReg,
+		projectRoot: projectRoot,
 	}
 
 	diveOpts := dive.AgentOptions{
@@ -421,7 +428,7 @@ func (a *Assistant) runningSubagents() []string {
 	defer a.mu.Unlock()
 	var names []string
 	for n, count := range a.running {
-		for i := 0; i < count; i++ {
+		for range count {
 			names = append(names, n)
 		}
 	}
@@ -598,7 +605,12 @@ Rules:
 4. Wrap pre-formatted text in fenced code blocks only when you actually need to show it.
 5. If a tool fails or output shows an error (compile error, test failure, lint warning, non-zero exit code, missing file), READ the error, fix the cause yourself with Edit/Write, and retry. Do not ask the user to fix code you wrote. Only escalate when you've genuinely run out of moves: missing credentials, missing tools, ambiguous design choices, or the same failure after 3+ self-fix attempts.
 6. Before reporting a task "done", verify it works. Created Go code? Run "go build ./..." (or "task build"). Created Python? Run it or its tests. Created a script? Execute it. "Done" means the artifact behaves as asked.
-7. For any work that takes more than 2 steps (build N files, refactor across packages, scaffold a project, debug across stages), publish your plan via tasks_set BEFORE starting. Update the list as you go — exactly one task in_progress at a time. Mark completed when done, failed when you give up on a step. BEFORE replying to the user, mark every task you actually finished as completed — do not leave a task in_progress when you're done; that strands the panel on screen. The user sees this list live above the input; it is your visible structure.
+7. For multi-step work, publish your plan via tasks_set BEFORE starting and update it as you go. Rules for the list:
+   - Use AS MANY OR AS FEW tasks as the work ACTUALLY HAS. Two real steps → 2 tasks. Eight real steps → 8 tasks. Do NOT default to round numbers (3, 5, 10) — that's a bias from training data, not a description of the work.
+   - If you discover sub-steps mid-work (a build fails and now needs a fix, an investigation reveals 4 unrelated files), CALL tasks_set AGAIN with the expanded list. The panel is dynamic; growing it mid-turn is expected.
+   - Exactly one task in_progress at a time.
+   - BEFORE replying, mark every finished task completed. Leaving in_progress strands the panel.
+   - Skip tasks_set entirely for trivial work (single tool call, one quick read). Three round trips to publish a 1-line plan is noise.
 8. For long-running commands (full builds, test suites, watchers, anything > ~10s), use bash_bg instead of Bash. It returns a task_id immediately so you can continue working; poll with bash_status(task_id), or wait for the auto-injected completion notice on the next turn. Use plain Bash for short commands (< ~10s).
 9. When work has INDEPENDENT parts (search 3 different subdirs, investigate 4 unrelated bugs, review N files), FAN OUT: emit multiple Agent tool calls IN THE SAME TURN with run_in_background:true. Pick the right subagent_type per task (Explore for read-only search, GeneralPurpose for action, Plan for design). Each agent runs concurrently with its own context window, results stream back automatically. Sequential single-agent calls for independent work waste wall-clock and your context budget. Examples that should fan out: "find all callers of X and Y and Z" (3 Explore agents), "review these 5 files" (5 GeneralPurpose agents), "what does package A do and how does package B differ" (2 Explore agents).`
 

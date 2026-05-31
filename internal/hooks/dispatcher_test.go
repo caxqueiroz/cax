@@ -2,7 +2,6 @@ package hooks
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -50,7 +49,7 @@ func TestDispatchNoMatchingEntries(t *testing.T) {
 		{Event: EventStop, Command: []string{"/bin/sh", "-c", "exit 1"}, Source: "p1"},
 	}, newTestLogger())
 
-	got := d.Dispatch(context.Background(), EventPreToolUse, map[string]any{"tool_name": "Bash"})
+	got := d.Dispatch(t.Context(), EventPreToolUse, map[string]any{"tool_name": "Bash"})
 	if got.Block {
 		t.Fatalf("Dispatch with no matching entries should not block, got %+v", got)
 	}
@@ -61,7 +60,7 @@ func TestDispatchNoMatchingEntries(t *testing.T) {
 
 func TestDispatchNilDispatcherSafe(t *testing.T) {
 	var d *Dispatcher
-	got := d.Dispatch(context.Background(), EventPreToolUse, nil)
+	got := d.Dispatch(t.Context(), EventPreToolUse, nil)
 	if got.Block || got.Feedback != "" {
 		t.Fatalf("nil dispatcher should be a no-op, got %+v", got)
 	}
@@ -79,7 +78,7 @@ func TestDispatchExitZeroDoesNotBlock(t *testing.T) {
 		Source:  "p1",
 	}}, newTestLogger())
 
-	got := d.Dispatch(context.Background(), EventPreToolUse, map[string]any{
+	got := d.Dispatch(t.Context(), EventPreToolUse, map[string]any{
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": "ls"},
 	})
@@ -100,7 +99,7 @@ func TestDispatchExitNonzeroBlocksWithStdoutFeedback(t *testing.T) {
 		Source:  "policy",
 	}}, newTestLogger())
 
-	got := d.Dispatch(context.Background(), EventPreToolUse, map[string]any{
+	got := d.Dispatch(t.Context(), EventPreToolUse, map[string]any{
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": "rm -rf /"},
 	})
@@ -128,7 +127,7 @@ func TestDispatchEnvelopeWrittenOnStdin(t *testing.T) {
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": "ls -la"},
 	}
-	got := d.Dispatch(context.Background(), EventPreToolUse, payload)
+	got := d.Dispatch(t.Context(), EventPreToolUse, payload)
 	if got.Block {
 		t.Fatalf("capture hook should not block, got %+v", got)
 	}
@@ -159,7 +158,7 @@ func TestDispatchMultipleBlockingHooksConcatenateFeedback(t *testing.T) {
 		{Event: EventStop, Command: []string{"/bin/sh", "-c", "echo second; exit 1"}, Source: "b"},
 	}, newTestLogger())
 
-	got := d.Dispatch(context.Background(), EventStop, nil)
+	got := d.Dispatch(t.Context(), EventStop, nil)
 	if !got.Block {
 		t.Fatalf("both hooks should block, got %+v", got)
 	}
@@ -176,7 +175,7 @@ func TestDispatchSpawnFailureIsBestEffort(t *testing.T) {
 		Source:  "broken",
 	}}, newTestLogger())
 
-	got := d.Dispatch(context.Background(), EventStop, nil)
+	got := d.Dispatch(t.Context(), EventStop, nil)
 	if got.Block {
 		t.Fatalf("spawn failure must be treated as no-op, got %+v", got)
 	}
@@ -195,7 +194,7 @@ func TestDispatchTimeoutKillsChild(t *testing.T) {
 	}}, newTestLogger())
 
 	start := time.Now()
-	got := d.Dispatch(context.Background(), EventStop, nil)
+	got := d.Dispatch(t.Context(), EventStop, nil)
 	elapsed := time.Since(start)
 
 	if elapsed >= 5*time.Second {

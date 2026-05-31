@@ -142,23 +142,16 @@ func composeTitledTop(title string, width int, rb lipgloss.Border, color lipglos
 // number of rows allocated to the box (border + padding + content).
 func (m model) renderConversationBox(width, height int) string {
 	col := borderColor()
-	boxOuter := width - 2*len(leftIndent)
-	if boxOuter < 16 {
-		boxOuter = 16
-	}
+	boxOuter := max(width-2*len(leftIndent), 16)
 	if height < 4 {
 		height = 4
 	}
 	// Inner content lines = height - 2 (top + bottom border) - 2 (top+bottom padding row).
 	// Padding(1,2) costs 1 row top + 1 row bottom + 2 cols left + 2 cols right.
-	innerH := height - 2 - 2
-	if innerH < 1 {
-		innerH = 1
-	}
-	innerW := boxOuter - 2 - 4 // -2 border, -4 padding (2 each side)
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerH := max(height-2-2, 1)
+	innerW := max(
+		// -2 border, -4 padding (2 each side)
+		boxOuter-2-4, 1)
 
 	// The viewport's own width/height already reflects the inner area
 	// (sized in WindowSizeMsg). Render it directly; padding adds margin.
@@ -184,18 +177,12 @@ func (m model) renderCompletionDropdown(width int) string {
 	s := styles()
 
 	matches := m.completion.matches
-	visible := len(matches)
-	if visible > 7 {
-		visible = 7
-	}
+	visible := min(len(matches), 7)
 	start := 0
 	if m.completion.idx >= visible {
 		start = m.completion.idx - visible + 1
 	}
-	end := start + visible
-	if end > len(matches) {
-		end = len(matches)
-	}
+	end := min(start+visible, len(matches))
 
 	const nameCol = 16
 	var b strings.Builder
@@ -211,10 +198,7 @@ func (m model) renderCompletionDropdown(width int) string {
 		}
 		name := nameStyle.Render("/" + e.name)
 		visW := lipgloss.Width(marker) + lipgloss.Width(name)
-		pad := nameCol - visW
-		if pad < 2 {
-			pad = 2
-		}
+		pad := max(nameCol-visW, 2)
 		row := leftIndent + marker + name + strings.Repeat(" ", pad) + descStyle.Render(e.desc)
 		b.WriteString(row)
 		if i < end-1 {
@@ -236,14 +220,10 @@ func (m model) renderCompletionDropdown(width int) string {
 // (1..6 inner rows + 2 border).
 func (m model) renderMessageBox(width int) string {
 	col := borderColor()
-	boxOuter := width - 2*len(leftIndent)
-	if boxOuter < 16 {
-		boxOuter = 16
-	}
-	innerW := boxOuter - 2 - 2 // -2 border, -2 padding (1 each side)
-	if innerW < 1 {
-		innerW = 1
-	}
+	boxOuter := max(width-2*len(leftIndent), 16)
+	innerW := max(
+		// -2 border, -2 padding (1 each side)
+		boxOuter-2-2, 1)
 	// Strip the trailing newline bubbles' textarea appends to each row — it
 	// would otherwise round up to an extra visual row inside the box.
 	body := strings.TrimRight(m.input.View(), "\n")
@@ -364,10 +344,7 @@ func renderBufferDots(s themedStyles, tokens, budget int) (string, int) {
 	if pct > 1 {
 		pct = 1
 	}
-	filled := int(pct * gaugeCells)
-	if filled > gaugeCells {
-		filled = gaugeCells
-	}
+	filled := min(int(pct*gaugeCells), gaugeCells)
 
 	chip := s.accent
 	switch {
@@ -392,10 +369,7 @@ func (m model) renderConversation() string {
 	if w < 4 {
 		w = 4
 	}
-	innerWidth := w
-	if innerWidth < 1 {
-		innerWidth = 1
-	}
+	innerWidth := max(w, 1)
 	wrap := lipgloss.NewStyle().Width(innerWidth)
 	wrapErr := s.red.Width(innerWidth)
 
@@ -414,10 +388,7 @@ func (m model) renderConversation() string {
 			// long replies. Width is the viewport inner width so the rule
 			// spans the whole conversation pane.
 			b.WriteByte('\n')
-			ruleW := innerWidth - 2
-			if ruleW < 4 {
-				ruleW = 4
-			}
+			ruleW := max(innerWidth-2, 4)
 			b.WriteString(s.dim.Render("  " + strings.Repeat("─", ruleW)))
 		default:
 			b.WriteString(wrap.Render(s.sys.Render(h.text)))
@@ -578,10 +549,7 @@ func (m model) View() string {
 	const welcomeRows = 6 + 2 + 2 + 1
 	used += welcomeRows
 
-	convH := m.height - used
-	if convH < 4 {
-		convH = 4
-	}
+	convH := max(m.height-used, 4)
 	conv := m.renderConversationBox(width, convH)
 	welcome := m.renderWelcomeBlock(width)
 

@@ -37,9 +37,9 @@ type Scheduler struct {
 // logging — including recovered panics — flows through structured slog output.
 type slogCronLogger struct{ l *slog.Logger }
 
-func (c slogCronLogger) Info(msg string, kv ...interface{}) { c.l.Info("cron: "+msg, kv...) }
-func (c slogCronLogger) Error(err error, msg string, kv ...interface{}) {
-	c.l.Error("cron: "+msg, append([]interface{}{"error", err}, kv...)...)
+func (c slogCronLogger) Info(msg string, kv ...any) { c.l.Info("cron: "+msg, kv...) }
+func (c slogCronLogger) Error(err error, msg string, kv ...any) {
+	c.l.Error("cron: "+msg, append([]any{"error", err}, kv...)...)
 }
 
 // New constructs a Scheduler. The cron instance recovers job panics and bridges

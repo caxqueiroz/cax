@@ -46,9 +46,8 @@ func (m model) renderWelcomeBlock(width int) string {
 	// inside the rounded "welcome" border.
 	padded := lipgloss.NewStyle().Padding(1, 0).Render(body)
 
-	inner := width - 4 // 2 indent + 2 border
-	if inner < 20 {
-		inner = 20
-	}
+	inner := max(
+		// 2 indent + 2 border
+		width-4, 20)
 	return borderWithTitle(padded, "welcome", inner, borderColor())
 }

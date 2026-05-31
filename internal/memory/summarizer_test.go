@@ -24,7 +24,7 @@ func (f *fakeSummarizer) Summarize(_ context.Context, _ string, msgs []Message) 
 
 func TestMaybeSummarizeUnderBudgetNoop(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	if _, err := st.AppendMessage(ctx, Message{SessionID: "s1", Role: RoleUser, Content: "hi", Tokens: 2}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestMaybeSummarizeUnderBudgetNoop(t *testing.T) {
 
 func TestMaybeSummarizeOverBudgetWritesSummary(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	// 4 messages, 4 tokens each = 16 tokens; budget 8 is exceeded.
 	for _, txt := range []string{"m1", "m2", "m3", "m4"} {
 		if _, err := st.AppendMessage(ctx, Message{SessionID: "s1", Role: RoleUser, Content: txt, Tokens: 4}); err != nil {
@@ -73,7 +73,7 @@ func TestMaybeSummarizeOverBudgetWritesSummary(t *testing.T) {
 
 func TestMaybeSummarizeIdempotentByCoverage(t *testing.T) {
 	st := openTestStore(t, 8)
-	ctx := context.Background()
+	ctx := t.Context()
 	for _, txt := range []string{"m1", "m2", "m3", "m4"} {
 		if _, err := st.AppendMessage(ctx, Message{SessionID: "s1", Role: RoleUser, Content: txt, Tokens: 4}); err != nil {
 			t.Fatal(err)

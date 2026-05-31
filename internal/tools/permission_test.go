@@ -2,7 +2,6 @@ package tools
 
 import (
 	"bytes"
-	"context"
 	"strings"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 
 func TestConfirmDialog_AutoApprove(t *testing.T) {
 	d := ConfirmDialog(false, strings.NewReader(""), &bytes.Buffer{})
-	out, err := d.Show(context.Background(), &dive.DialogInput{Confirm: true, Title: "Bash"})
+	out, err := d.Show(t.Context(), &dive.DialogInput{Confirm: true, Title: "Bash"})
 	if err != nil {
 		t.Fatalf("show: %v", err)
 	}
@@ -23,7 +22,7 @@ func TestConfirmDialog_AutoApprove(t *testing.T) {
 func TestConfirmDialog_PromptYes(t *testing.T) {
 	var out bytes.Buffer
 	d := ConfirmDialog(true, strings.NewReader("y\n"), &out)
-	res, err := d.Show(context.Background(), &dive.DialogInput{Confirm: true, Title: "Bash", Message: "rm -rf /tmp/x"})
+	res, err := d.Show(t.Context(), &dive.DialogInput{Confirm: true, Title: "Bash", Message: "rm -rf /tmp/x"})
 	if err != nil {
 		t.Fatalf("show: %v", err)
 	}
@@ -37,7 +36,7 @@ func TestConfirmDialog_PromptYes(t *testing.T) {
 
 func TestConfirmDialog_PromptNo(t *testing.T) {
 	d := ConfirmDialog(true, strings.NewReader("n\n"), &bytes.Buffer{})
-	res, err := d.Show(context.Background(), &dive.DialogInput{Confirm: true, Title: "Write"})
+	res, err := d.Show(t.Context(), &dive.DialogInput{Confirm: true, Title: "Write"})
 	if err != nil {
 		t.Fatalf("show: %v", err)
 	}
@@ -48,7 +47,7 @@ func TestConfirmDialog_PromptNo(t *testing.T) {
 
 func TestConfirmDialog_EOFDenies(t *testing.T) {
 	d := ConfirmDialog(true, strings.NewReader(""), &bytes.Buffer{})
-	res, err := d.Show(context.Background(), &dive.DialogInput{Confirm: true, Title: "Bash"})
+	res, err := d.Show(t.Context(), &dive.DialogInput{Confirm: true, Title: "Bash"})
 	if err != nil {
 		t.Fatalf("show: %v", err)
 	}
