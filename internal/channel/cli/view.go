@@ -202,21 +202,20 @@ func (m model) renderBorderStatus() string {
 	}
 	_, pct := renderBufferDots(s, st.ContextTokens, st.ContextBudget)
 	parts = append(parts, s.dim.Render("ctx ")+s.statusValue.Render(fmt.Sprintf("%d%%", pct)))
-	if m.turnInputTokens > 0 || m.streaming {
-		tk := s.dim.Render("↑")
-		if m.turnInputTokens > 0 {
-			tk += s.statusValue.Render(fmt.Sprintf("%d", m.turnInputTokens))
-		} else {
-			tk += s.dim.Render("·")
+	if m.turnInputTokens > 0 {
+		parts = append(parts, s.dim.Render("↑ ")+s.statusValue.Render(fmt.Sprintf("%d", m.turnInputTokens)))
+	}
+	// Downstream tokens: prefer the streaming buffer mid-turn, but fall back
+	// to the most recent bot reply's tokens when we're between turns so the
+	// number doesn't blank out the moment a reply lands.
+	down := estimateTokens(m.stream)
+	if down == 0 {
+		if last := m.lastBotEntry(); last != nil {
+			down = estimateTokens(last.text)
 		}
-		out := estimateTokens(m.stream)
-		tk += s.dim.Render(" ↓")
-		if out > 0 {
-			tk += s.statusValue.Render(fmt.Sprintf("%d", out))
-		} else {
-			tk += s.dim.Render("·")
-		}
-		parts = append(parts, tk)
+	}
+	if down > 0 {
+		parts = append(parts, s.dim.Render("↓ ")+s.statusValue.Render(fmt.Sprintf("%d", down)))
 	}
 	if !m.sessionStart.IsZero() {
 		parts = append(parts, s.dim.Render("up ")+s.statusValue.Render(humanizeDuration(time.Since(m.sessionStart), false)))
@@ -558,15 +557,7 @@ func (m model) renderTaskPanel(width int) string {
 		more = len(visible) - maxRows
 		visible = visible[:maxRows]
 	}
-	var done, total int
-	for _, t := range m.taskList {
-		total++
-		if t.Status == tasks.StatusCompleted {
-			done++
-		}
-	}
-	header := s.dim.Render(fmt.Sprintf("  tasks  %d/%d", done, total))
-	lines := []string{header}
+	lines := []string{}
 	for _, t := range visible {
 		glyph := "☐"
 		style := s.fg
