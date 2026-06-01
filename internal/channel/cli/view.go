@@ -281,28 +281,6 @@ func (m model) renderMessageBox(width int) string {
 	body := strings.TrimRight(m.input.View(), "\n")
 	body = trimTrailingPerLine(body)
 
-	// Overlay our own placeholder text on the middle row when the input is
-	// empty. The per-line prompt func renders "  " (two-space pad) on every
-	// non-cursor row, so we splice our hint into the line WITHOUT adding
-	// extra indent — bubbles already produced the prompt cell for us.
-	if m.input.Value() == "" {
-		s := styles()
-		placeholder := s.dim.Render("type a message, or / for commands")
-		lines := strings.Split(body, "\n")
-		mid := m.input.Height() / 2 // row 2 (0-indexed) for height=5; centers as height varies
-		for len(lines) <= mid {
-			lines = append(lines, "")
-		}
-		// Replace the empty content after the 2-char prompt with our hint.
-		// The first 2 cells stay as the dimmed "  " from SetPromptFunc.
-		if len(lines[mid]) >= 2 {
-			lines[mid] = lines[mid][:2] + placeholder
-		} else {
-			lines[mid] = "  " + placeholder
-		}
-		body = strings.Join(lines, "\n")
-	}
-
 	body = lipgloss.NewStyle().
 		Width(innerW).
 		Height(m.input.Height()).

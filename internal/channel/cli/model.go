@@ -307,11 +307,9 @@ func newModel(width, height int) model {
 		}
 		return "  "
 	})
-	// Placeholder is rendered ourselves in renderMessageBox on the MIDDLE
-	// row of the 5-row box (so the empty input shows a hint where the eye
-	// naturally lands, not glued to the cursor on row 0). Suppressing
-	// bubbles' built-in placeholder avoids double-rendering.
-	ta.Placeholder = ""
+	// Placeholder on the cursor row (Claude Code style) — inline next to ❯,
+	// dim, disappears as you type. Bubbles renders this on row 0 only.
+	ta.Placeholder = "type a message, or / for commands"
 	ta.CharLimit = 4000
 	ta.ShowLineNumbers = false
 	// Disable Enter→newline so Enter falls through to model.Update's explicit
