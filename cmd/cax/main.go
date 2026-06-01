@@ -32,6 +32,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/tasks"
 	"github.com/caxqueiroz/cax/internal/theme"
 	"github.com/caxqueiroz/cax/internal/tools"
+	"github.com/deepnoodle-ai/dive/toolkit"
 	"github.com/caxqueiroz/cax/internal/usercmds"
 	"github.com/deepnoodle-ai/dive"
 )
@@ -199,6 +200,16 @@ func run() error {
 	if wsErr != nil {
 		return fmt.Errorf("load workspace: %w", wsErr)
 	}
+	// Seed the dive PathValidator's ReadAllowedPaths from every workspace
+	// entry. Without this, Bash/Read/Grep refuse to touch projects outside
+	// cfg.Tools.WorkspaceDirs (which defaults to $HOME) — biting Windows
+	// users especially when their projects live on D:\ but their home is
+	// on C:\. workspaceAdapter.Add (below) does the same per-call.
+	for _, e := range ws.Entries() {
+		if err := bgValidator.AllowReadPath(e.Path); err != nil {
+			slog.Warn("workspace: allow-read-path failed", "path", e.Path, "err", err)
+		}
+	}
 	// One-shot startup diagnostics so we never have to guess at runtime why
 	// code_search isn't injecting anything. Visible in ~/.cax/cax.log on
 	// every launch.
@@ -283,7 +294,7 @@ func run() error {
 		cli.WithTaskBoard(taskBoard),
 		cli.WithFacts(factsAdapter{store: store}),
 		cli.WithProjectRoot(projectRoot),
-		cli.WithWorkspace(workspaceAdapter{w: ws}),
+		cli.WithWorkspace(workspaceAdapter{w: ws, validator: bgValidator}),
 	)
 	statusFn := func(ctx context.Context) (channel.Status, error) {
 		st, err := assistant.Status(ctx)
@@ -877,8 +888,15 @@ func ensureDefaultConfig(path string, isDefault bool) (created bool, err error) 
 // workspace.Workspace. The CLI mutates this on /workspace commands; the
 // agent reads the same instance on every PreGeneration for code_search
 // fan-out, so both see the same list without a refresh step.
+//
+// validator is the dive PathValidator shared by every file/shell tool. Add
+// calls AllowReadPath on it so that adding a project to the workspace also
+// permits subsequent Bash/Read/Grep against that path — critical for
+// projects living outside cfg.Tools.WorkspaceDirs (e.g. D:\ on Windows
+// when home is on C:\). Nil-safe for tests.
 type workspaceAdapter struct {
-	w *workspace.Workspace
+	w         *workspace.Workspace
+	validator *toolkit.PathValidator
 }
 
 func (a workspaceAdapter) List() []cli.WorkspaceEntry {
@@ -894,6 +912,11 @@ func (a workspaceAdapter) Add(name, path string) (cli.WorkspaceEntry, error) {
 	e, err := a.w.Add(name, path)
 	if err != nil {
 		return cli.WorkspaceEntry{}, err
+	}
+	if a.validator != nil {
+		if perr := a.validator.AllowReadPath(e.Path); perr != nil {
+			slog.Warn("workspace: allow-read-path failed", "path", e.Path, "err", perr)
+		}
 	}
 	return cli.WorkspaceEntry{Name: e.Name, Path: e.Path}, nil
 }
