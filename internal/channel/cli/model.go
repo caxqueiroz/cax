@@ -288,6 +288,14 @@ type model struct {
 	// helpOpen toggles the keybindings/commands overlay (Ctrl+/).
 	helpOpen bool
 
+	// mouseGrabbed tracks the current mouse-capture state. True (default)
+	// means the scroll wheel + drag route into the bubbletea program (so
+	// scrolling the conversation pane works); false means the terminal
+	// handles them natively (so text selection / copy works). Ctrl+G
+	// toggles. Initialized to true to match the tea.WithMouseCellMotion
+	// option on program construction.
+	mouseGrabbed bool
+
 	// taskList mirrors tasks.Board for live render in the sticky panel above
 	// the input. Empty list → panel is hidden. Populated by tasksUpdateMsg.
 	taskList []tasks.Task
@@ -354,6 +362,7 @@ func newModel(width, height int) model {
 		spinner:       sp,
 		sessionStart:  time.Now(),
 		showStreaming: true, // overridden by cli.WithShowStreaming if config sets it
+		mouseGrabbed:  true, // matches tea.WithMouseCellMotion in cli.Start
 	}
 }
 
@@ -474,6 +483,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cycleTheme()
 			m.refreshViewport()
 			return m, nil
+		case tea.KeyCtrlG:
+			// Toggle mouse capture so the user can drag-select text in
+			// the terminal without needing platform-specific modifiers
+			// (Option on macOS, Shift on Windows Terminal). When released,
+			// scroll wheel reverts to terminal scrollback; when grabbed,
+			// scroll routes to the in-app viewport again.
+			m.mouseGrabbed = !m.mouseGrabbed
+			var msg string
+			var cmd tea.Cmd
+			if m.mouseGrabbed {
+				cmd = tea.EnableMouseCellMotion
+				msg = "mouse: grabbed (scroll wheel scrolls cax; Ctrl+G to release for native selection)"
+			} else {
+				cmd = tea.DisableMouse
+				msg = "mouse: released (drag to select text natively; Ctrl+G to grab again for scroll)"
+			}
+			m.history = append(m.history, historyEntry{who: "sys", text: msg})
+			m.refreshViewport()
+			return m, cmd
 		case tea.KeyCtrlE:
 			// /code shortcut — open the last assistant reply's code in the
 			// pager so the user can use the terminal's native mouse to
