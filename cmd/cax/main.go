@@ -26,6 +26,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/memory"
 	"github.com/caxqueiroz/cax/internal/plugins"
 	"github.com/caxqueiroz/cax/internal/projectroot"
+	"github.com/caxqueiroz/cax/internal/workspace"
 	"github.com/caxqueiroz/cax/internal/scheduler"
 	"github.com/caxqueiroz/cax/internal/skills"
 	"github.com/caxqueiroz/cax/internal/tasks"
@@ -190,6 +191,33 @@ func run() error {
 
 	projectRoot := projectroot.New()
 
+	wsPath := ""
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		wsPath = filepath.Join(home, ".cax", "workspace.json")
+	}
+	ws, wsErr := workspace.New(wsPath)
+	if wsErr != nil {
+		return fmt.Errorf("load workspace: %w", wsErr)
+	}
+	// One-shot startup diagnostics so we never have to guess at runtime why
+	// code_search isn't injecting anything. Visible in ~/.cax/cax.log on
+	// every launch.
+	csEnabled := cfg.Memory.CodeSearch.Enabled()
+	wsCount := len(ws.Entries())
+	slog.Info("workspace: loaded", "path", wsPath, "entries", wsCount)
+	slog.Info("code_search: configured",
+		"enabled", csEnabled,
+		"command", cfg.Memory.CodeSearch.Command,
+		"args_set", len(cfg.Memory.CodeSearch.Args) > 0,
+		"timeout_ms", cfg.Memory.CodeSearch.TimeoutMs,
+	)
+	if csEnabled && len(cfg.Memory.CodeSearch.Args) == 0 {
+		slog.Warn("code_search: command is set but args is empty — ken/etc. will run with no args and produce no ranking")
+	}
+	if csEnabled && wsCount == 0 {
+		slog.Warn("code_search: enabled but workspace has 0 entries — fan-out will be skipped until you /workspace add")
+	}
+
 	assistant, err := agent.BuildAgent(ctx, cfg, store, agent.BuildOptions{
 		Model:        model,
 		Router:       router,
@@ -203,6 +231,7 @@ func run() error {
 		TaskBoard:    taskBoard,
 		BgReg:        bgReg,
 		ProjectRoot:  projectRoot,
+		Workspace:    ws,
 	})
 	if err != nil {
 		return fmt.Errorf("build assistant: %w", err)
@@ -254,6 +283,7 @@ func run() error {
 		cli.WithTaskBoard(taskBoard),
 		cli.WithFacts(factsAdapter{store: store}),
 		cli.WithProjectRoot(projectRoot),
+		cli.WithWorkspace(workspaceAdapter{w: ws}),
 	)
 	statusFn := func(ctx context.Context) (channel.Status, error) {
 		st, err := assistant.Status(ctx)
@@ -841,4 +871,49 @@ func ensureDefaultConfig(path string, isDefault bool) (created bool, err error) 
 		return false, fmt.Errorf("write default config: %w", err)
 	}
 	return true, nil
+}
+
+// workspaceAdapter satisfies cli.workspaceBackend over the in-process
+// workspace.Workspace. The CLI mutates this on /workspace commands; the
+// agent reads the same instance on every PreGeneration for code_search
+// fan-out, so both see the same list without a refresh step.
+type workspaceAdapter struct {
+	w *workspace.Workspace
+}
+
+func (a workspaceAdapter) List() []cli.WorkspaceEntry {
+	src := a.w.Entries()
+	out := make([]cli.WorkspaceEntry, len(src))
+	for i, e := range src {
+		out[i] = cli.WorkspaceEntry{Name: e.Name, Path: e.Path}
+	}
+	return out
+}
+
+func (a workspaceAdapter) Add(name, path string) (cli.WorkspaceEntry, error) {
+	e, err := a.w.Add(name, path)
+	if err != nil {
+		return cli.WorkspaceEntry{}, err
+	}
+	return cli.WorkspaceEntry{Name: e.Name, Path: e.Path}, nil
+}
+
+func (a workspaceAdapter) Remove(nameOrPath string) (cli.WorkspaceEntry, error) {
+	e, err := a.w.Remove(nameOrPath)
+	if err != nil {
+		return cli.WorkspaceEntry{}, err
+	}
+	return cli.WorkspaceEntry{Name: e.Name, Path: e.Path}, nil
+}
+
+func (a workspaceAdapter) Discover(start string) (string, []cli.WorkspaceEntry, error) {
+	root, children, err := workspace.Discover(start)
+	if err != nil || root == "" {
+		return root, nil, err
+	}
+	out := make([]cli.WorkspaceEntry, len(children))
+	for i, c := range children {
+		out[i] = cli.WorkspaceEntry{Name: c.Name, Path: c.Path}
+	}
+	return root, out, nil
 }

@@ -97,7 +97,7 @@ func TestStatusRowUsesBufferLabel(t *testing.T) {
 	m.status = statusFixture()
 	m.hasStatus = true
 	row := m.renderStatusRow(80)
-	for _, want := range []string{"claude-opus", "✓", "buffer", "76%", "1d", "recall", "cwd", "🔧"} {
+	for _, want := range []string{"claude-opus", "✓", "ctx", "76%", "1d", "memories", "cwd", "🔧"} {
 		if !strings.Contains(row, want) {
 			t.Errorf("status row missing %q\n%s", want, row)
 		}
@@ -192,7 +192,7 @@ func TestViewIncludesAllRegions(t *testing.T) {
 	out := m.View()
 	// After header removal: top-level chrome is conv + status + msg. The brand
 	// only appears in the welcome card on empty history.
-	for _, want := range []string{"conversation", "message", "buffer", "❯", "claude-opus", "1d", "recall"} {
+	for _, want := range []string{"conversation", "message", "ctx", "❯", "claude-opus", "1d", "memories"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q", want)
 		}
@@ -240,7 +240,7 @@ func TestViewFallbackOnTinyHeight(t *testing.T) {
 	if !strings.Contains(out, "cax") {
 		t.Errorf("fallback missing brand: %q", out)
 	}
-	if !strings.Contains(out, "buffer") {
+	if !strings.Contains(out, "ctx") {
 		t.Errorf("fallback missing buffer label: %q", out)
 	}
 }

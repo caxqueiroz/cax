@@ -273,16 +273,16 @@ func (m model) renderStatusRow(_ int) string {
 
 	mid := s.dim.Render(" · ")
 	tokens := s.statusLabel.Render("1d") + " " + s.statusValue.Render(humanizeTokens(day))
-	// "recall" is the agent's growing long-term memory: the count of semantic
-	// vectors embedded from past turns and available to retrieval. NOT the
-	// app's RAM/disk footprint — context-window usage is shown separately by
-	// the buffer dots + percentage.
-	mem := s.statusLabel.Render("recall") + " " + s.statusValue.Render(humanizeTokens(st.MemoryCount))
+	// "memories" is the lifetime count of long-term semantic vectors stored
+	// at ~/.cax/memory.db. Each turn embeds its assistant reply into a row
+	// here; PreGeneration runs a top-K vector search on every new turn and
+	// injects the hits as a "Relevant memories" block. NOT the app's RAM
+	// footprint — current prompt usage is shown separately by the ctx dots
+	// + percentage.
+	mem := s.statusLabel.Render("memories") + " " + s.statusValue.Render(humanizeTokens(st.MemoryCount))
 	cwd := s.statusLabel.Render("cwd") + " " + s.statusValue.Render(displayCWD(st.CWD, 24))
-	uptime := ""
-	if !m.sessionStart.IsZero() {
-		uptime = s.statusLabel.Render("up") + " " + s.statusValue.Render(humanizeDuration(time.Since(m.sessionStart), false))
-	}
+	// Uptime moved to the welcome card's top-right; the status row stays
+	// focused on per-turn signals (model, buffer, tokens, recall, cwd, tools).
 	tools := s.statusLabel.Render("🔧") + " " + s.statusValue.Render(fmt.Sprintf("%d", len(st.ToolNames)))
 
 	extras := ""
@@ -300,13 +300,12 @@ func (m model) renderStatusRow(_ int) string {
 		extras += mid + s.accent.Render("● agents") + " " + s.statusValue.Render(fmt.Sprintf("%d", n))
 	}
 
-	bufferLabel := s.statusLabel.Render("buffer") + " " + s.statusValue.Render(fmt.Sprintf("%d%%", pct))
+	// "ctx" is the active prompt's share of the LLM's context window — system
+	// prompt + memory injection (summary + recall + facts + ranked code) +
+	// the recent conversation messages, divided by memory.token_budget.
+	bufferLabel := s.statusLabel.Render("ctx") + " " + s.statusValue.Render(fmt.Sprintf("%d%%", pct))
 	gap := "   "
-	row := leftIndent + modelPart + gap + dots + " " + bufferLabel + gap + tokens + mid + mem + mid + cwd
-	if uptime != "" {
-		row += mid + uptime
-	}
-	row += mid + tools + extras
+	row := leftIndent + modelPart + gap + dots + " " + bufferLabel + gap + tokens + mid + mem + mid + cwd + mid + tools + extras
 	return row
 }
 
@@ -360,7 +359,14 @@ func renderBufferDots(s themedStyles, tokens, budget int) (string, int) {
 // renderConversation builds the body for the viewport. Assistant entries
 // are rendered as markdown via glamour; user/sys entries stay raw with
 // theme-driven prefixes. Spinner/working… is unchanged.
-func (m model) renderConversation() string {
+//
+// Each historyEntry's rendered output is CACHED on the entry itself,
+// stamped with the width it was rendered at. On a window resize the cache
+// is invalidated en masse (renderedWidth != innerWidth). This is the
+// single biggest performance lever for the TUI: without caching, every
+// streamDeltaMsg re-runs glamour over the entire history, which on a
+// 20-turn conversation costs ~100ms per delta and freezes the UI.
+func (m *model) renderConversation() string {
 	s := styles()
 	w := m.viewport.Width
 	if w <= 0 {
@@ -374,25 +380,13 @@ func (m model) renderConversation() string {
 	wrapErr := s.red.Width(innerWidth)
 
 	var b strings.Builder
-	for _, h := range m.history {
-		switch h.who {
-		case "you":
-			b.WriteString(wrap.Render(s.user.Render("❯ ") + h.text))
-		case "bot":
-			b.WriteString(strings.TrimRight(RenderMarkdown(h.text, innerWidth), "\n"))
-			if h.duration > 0 {
-				b.WriteByte('\n')
-				b.WriteString(s.dim.Render("  · took " + humanizeDuration(h.duration, true)))
-			}
-			// Turn-closing rule so the next ❯ is visually separated from
-			// long replies. Width is the viewport inner width so the rule
-			// spans the whole conversation pane.
-			b.WriteByte('\n')
-			ruleW := max(innerWidth-2, 4)
-			b.WriteString(s.dim.Render("  " + strings.Repeat("─", ruleW)))
-		default:
-			b.WriteString(wrap.Render(s.sys.Render(h.text)))
+	for i := range m.history {
+		h := &m.history[i]
+		if h.rendered == "" || h.renderedWidth != innerWidth {
+			h.rendered = renderHistoryEntry(h, &s, wrap, innerWidth)
+			h.renderedWidth = innerWidth
 		}
+		b.WriteString(h.rendered)
 		b.WriteByte('\n')
 		if h.who == "you" || h.who == "bot" {
 			b.WriteByte('\n')
@@ -411,12 +405,20 @@ func (m model) renderConversation() string {
 		if !m.turnStart.IsZero() {
 			meta = humanizeDuration(time.Since(m.turnStart), false)
 		}
+		// Input tokens shown once the PreGeneration hook has reported them;
+		// downstream tokens (↓) come straight off the streamed delta length.
+		if m.turnInputTokens > 0 {
+			if meta != "" {
+				meta += " · "
+			}
+			meta += fmt.Sprintf("↑ %d", m.turnInputTokens)
+		}
 		tok := estimateTokens(m.stream)
 		if tok > 0 {
 			if meta != "" {
 				meta += " · "
 			}
-			meta += fmt.Sprintf("↓ %d tokens", tok)
+			meta += fmt.Sprintf("↓ %d", tok)
 		}
 		if meta != "" {
 			meta = s.dim.Render(" " + meta)
@@ -456,6 +458,33 @@ func (m model) renderConversation() string {
 func (m *model) refreshViewport() {
 	m.viewport.SetContent(m.renderConversation())
 	m.viewport.GotoBottom()
+}
+
+// renderHistoryEntry renders one history row to its final display string
+// (markdown-rendered when bot, plain wrapped when user/sys). Output is
+// cached on the historyEntry; callers must invalidate (renderedWidth = 0)
+// when width changes.
+func renderHistoryEntry(h *historyEntry, s *themedStyles, wrap lipgloss.Style, innerWidth int) string {
+	var b strings.Builder
+	switch h.who {
+	case "you":
+		b.WriteString(wrap.Render(s.user.Render("❯ ") + h.text))
+	case "bot":
+		b.WriteString(strings.TrimRight(RenderMarkdown(h.text, innerWidth), "\n"))
+		if h.duration > 0 {
+			b.WriteByte('\n')
+			b.WriteString(s.dim.Render("  · took " + humanizeDuration(h.duration, true)))
+		}
+		// Turn-closing rule so the next ❯ is visually separated from
+		// long replies. Width is the viewport inner width so the rule
+		// spans the whole conversation pane.
+		b.WriteByte('\n')
+		ruleW := max(innerWidth-2, 4)
+		b.WriteString(s.dim.Render("  " + strings.Repeat("─", ruleW)))
+	default:
+		b.WriteString(wrap.Render(s.sys.Render(h.text)))
+	}
+	return b.String()
 }
 
 // renderTaskPanel renders the sticky to-do panel above the input. Returns

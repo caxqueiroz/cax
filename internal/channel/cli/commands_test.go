@@ -99,7 +99,7 @@ func TestStatsCommand(t *testing.T) {
 	if quit {
 		t.Fatalf("/stats should not quit")
 	}
-	for _, want := range []string{"claude-opus", "buffer", "1d", "recall", "messages", "vectors"} {
+	for _, want := range []string{"claude-opus", "ctx", "1d", "memories", "messages", "vectors"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("/stats missing %q in:\n%s", want, out)
 		}

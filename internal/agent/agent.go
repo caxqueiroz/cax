@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/skills"
 	"github.com/caxqueiroz/cax/internal/tasks"
 	"github.com/caxqueiroz/cax/internal/tools"
+	"github.com/caxqueiroz/cax/internal/workspace"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
 )
@@ -96,6 +98,7 @@ type BuildOptions struct {
 	TaskBoard    *tasks.Board
 	BgReg        *bgproc.Registry
 	ProjectRoot  *projectroot.Resolver
+	Workspace    *workspace.Workspace
 }
 
 // Build is the legacy thin entrypoint kept for back-compat. New callers
@@ -253,6 +256,7 @@ func BuildAgent(
 		hooksDisp:   hooksDisp,
 		bgReg:       bgReg,
 		projectRoot: projectRoot,
+		workspace:   opts.Workspace,
 	}
 
 	diveOpts := dive.AgentOptions{
@@ -392,6 +396,12 @@ func (a *Assistant) Handle(ctx context.Context, msg channel.Message, emit channe
 				Text: fmt.Sprintf("compacted %d messages (~%d tokens) into the summary", msgs, tokens),
 			})
 		}),
+		// Per-turn closure the PreGeneration hook calls once it has assembled
+		// the final input messages (system + memory + recall + facts + ranked
+		// code + user). The TUI's spinner row renders the count as "↑ N".
+		dive.WithValue("emit_input_tokens", func(n int) {
+			emit(channel.StreamEvent{Type: "input_tokens", Text: strconv.Itoa(n)})
+		}),
 		dive.WithEventCallback(callback),
 	)
 	if err != nil {
@@ -506,17 +516,25 @@ func (a *Assistant) Status(ctx context.Context) (channel.Status, error) {
 	// loading the recent message window of the most-recent session and
 	// summing its per-message token counts. Best-effort: empty session id
 	// or store errors silently keep ContextTokens at 0.
+	//
+	// Baseline floor: the system prompt is always in context, so even on
+	// a fresh session before the first turn, the buffer should reflect
+	// THAT cost rather than reading 0%. This fixes the "buffer is 0% at
+	// startup, jumps to N% after the first query" gotcha.
+	baseline := memory.EstimateTokens(composeSystemPrompt(a.cfg.Persona))
+	st.ContextTokens = baseline
 	a.sessionMu.RLock()
 	sid := a.lastSessionID
 	a.sessionMu.RUnlock()
-	if sid != "" {
-		if _, msgs, err := a.store.LoadWindow(ctx, sid, st.ContextBudget); err == nil {
-			total := 0
-			for _, m := range msgs {
-				total += m.Tokens
-			}
-			st.ContextTokens = total
+	if sid == "" {
+		sid = "cli" // default channel session id; harmless when the session is empty
+	}
+	if _, msgs, err := a.store.LoadWindow(ctx, sid, st.ContextBudget); err == nil {
+		total := baseline
+		for _, m := range msgs {
+			total += m.Tokens
 		}
+		st.ContextTokens = total
 	}
 	if roll, err := a.store.UsageRollups(ctx); err == nil {
 		st.Usage = channel.UsageRollup{

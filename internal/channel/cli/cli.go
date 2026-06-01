@@ -7,6 +7,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -36,6 +37,7 @@ type CLI struct {
 	taskBoard      *tasks.Board
 	facts          factsBackend
 	projectRoot    *projectroot.Resolver
+	workspace      workspaceBackend
 }
 
 // Option configures a CLI.
@@ -122,6 +124,13 @@ func WithProjectRoot(r *projectroot.Resolver) Option {
 	return func(c *CLI) { c.projectRoot = r }
 }
 
+// WithWorkspace wires the workspaceBackend powering /workspace and the
+// agent's code_search fan-out. cmd/cax wraps internal/workspace.Workspace
+// in an adapter.
+func WithWorkspace(b workspaceBackend) Option {
+	return func(c *CLI) { c.workspace = b }
+}
+
 // New builds a CLI channel with sensible defaults.
 func New(opts ...Option) *CLI {
 	c := &CLI{
@@ -150,6 +159,7 @@ func (c *CLI) Start(ctx context.Context, handle channel.Handler, status channel.
 	m.creator = c.creator
 	m.facts = c.facts
 	m.projectRoot = c.projectRoot
+	m.workspace = c.workspace
 	m.hookEntries = c.hookEntries
 	m.userCommands = c.userCommands
 	m.themeStateFile = c.themeStateFile
@@ -216,6 +226,9 @@ func (c *CLI) runTurn(ctx context.Context, send sender, handle channel.Handler, 
 			send(subagentEventMsg{kind: ev.Type, name: ev.Text})
 		case "error":
 			send(streamDeltaMsg{text: "\n[error] " + ev.Text})
+		case "input_tokens":
+			n, _ := strconv.Atoi(ev.Text)
+			send(inputTokensMsg{tokens: n})
 		case "summarized":
 			// Buffered and shipped with turnDoneMsg so the sys notice
 			// renders AFTER the bot reply (chronologically correct: the

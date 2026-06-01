@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/caxqueiroz/cax/internal/hooks"
 	"github.com/caxqueiroz/cax/internal/memory"
 	"github.com/caxqueiroz/cax/internal/projectroot"
+	"github.com/caxqueiroz/cax/internal/workspace"
 	"github.com/deepnoodle-ai/dive"
 	"github.com/deepnoodle-ai/dive/llm"
 )
@@ -33,7 +35,52 @@ type hookDeps struct {
 	hooksDisp       *hooks.Dispatcher
 	bgReg           *bgproc.Registry      // nil-safe; powers completion-notice injection
 	projectRoot     *projectroot.Resolver // nil-safe; resolved per-turn for code_search
+	workspace       *workspace.Workspace  // nil-safe; powers parallel code_search fan-out
 }
+
+// resolveCodeSearchTargets picks which repo(s) to fire ken/code-search at
+// for this turn. Order:
+//  1. If a workspace is wired and has entries, prefer it. If the query
+//     mentions any workspace entry names (option (b): service-name
+//     narrowing), scope to those. Otherwise fan out across the full
+//     workspace.
+//  2. Else fall back to the projectroot.Resolver (a single repo).
+func (d *hookDeps) resolveCodeSearchTargets(query string) []workspace.Entry {
+	if d.workspace != nil {
+		entries := d.workspace.Entries()
+		if len(entries) > 0 {
+			if matches := d.workspace.MatchingNames(query); len(matches) > 0 {
+				return matches
+			}
+			return entries
+		}
+	}
+	if d.projectRoot != nil {
+		if repo := d.projectRoot.For(query); repo != "" {
+			return []workspace.Entry{{Name: filepath.Base(repo), Path: repo}}
+		}
+	}
+	return nil
+}
+
+// targetNames returns a slice of just the entry names for logging.
+func targetNames(targets []workspace.Entry) []string {
+	out := make([]string, len(targets))
+	for i, t := range targets {
+		out[i] = t.Name
+	}
+	return out
+}
+
+// codeSearchHeader formats the prompt-block header. Single target gets a
+// concise "Relevant code from <repo>"; multi-target gets a fan-out count.
+func codeSearchHeader(targets []workspace.Entry) string {
+	if len(targets) == 1 {
+		return "Relevant code from " + targets[0].Name + " (ranked):"
+	}
+	return fmt.Sprintf("Relevant code across %d projects (ranked, [project] prefix):", len(targets))
+}
+
 
 // factsRecallToFacts converts the lightweight RecallFact hits returned by
 // RecallFacts into the fuller memory.Fact shape the extractor wants. Only
@@ -166,16 +213,16 @@ func (d *hookDeps) preGeneration(ctx context.Context, hctx *dive.HookContext) er
 		// chunks are injected as context — the agent doesn't have to grep
 		// around to find what the user is asking about. Best-effort.
 		if d.cfg != nil && d.cfg.Memory.CodeSearch.Enabled() {
-			var repo string
-			if d.projectRoot != nil {
-				repo = d.projectRoot.For(query)
-			}
-			ranked, rerr := runCodeSearch(ctx, d.cfg.Memory.CodeSearch, query, repo)
-			if rerr != nil {
-				slog.Warn("code_search failed", "err", rerr, "session_id", sid, "repo", repo)
-			} else if ranked != "" {
-				slog.Info("code_search hit", "session_id", sid, "repo", repo, "bytes", len(ranked))
-				blocks = append(blocks, llm.NewTextContent("Relevant code from "+repo+" (ranked):\n"+ranked))
+			targets := d.resolveCodeSearchTargets(query)
+			if len(targets) > 0 {
+				ranked, rerr := runCodeSearch(ctx, d.cfg.Memory.CodeSearch, query, targets)
+				if rerr != nil {
+					slog.Warn("code_search failed", "err", rerr, "session_id", sid, "targets", targetNames(targets))
+				} else if ranked != "" {
+					slog.Info("code_search hit", "session_id", sid, "targets", targetNames(targets), "bytes", len(ranked))
+					header := codeSearchHeader(targets)
+					blocks = append(blocks, llm.NewTextContent(header+"\n"+ranked))
+				}
 			}
 		}
 	}
@@ -196,6 +243,31 @@ func (d *hookDeps) preGeneration(ctx context.Context, hctx *dive.HookContext) er
 	if len(blocks) > 0 {
 		ctxMsg := llm.NewUserMessage(blocks...)
 		hctx.Messages = append([]*llm.Message{ctxMsg}, hctx.Messages...)
+	}
+
+	// Best-effort prompt-token estimate for the TUI's "↑ N" indicator.
+	// Sums every text content in the final message list — system prompt +
+	// our memory/recall/facts/code blocks + user input + any prior turns
+	// dive included. Rough estimate via memory.EstimateTokens (a chars/4
+	// approximation); accurate enough for a live progress badge.
+	if emit, ok := hctx.Values["emit_input_tokens"].(func(int)); ok {
+		total := 0
+		for _, msg := range hctx.Messages {
+			if msg == nil {
+				continue
+			}
+			for _, c := range msg.Content {
+				if c == nil {
+					continue
+				}
+				if tc, ok := c.(*llm.TextContent); ok {
+					total += memory.EstimateTokens(tc.Text)
+				}
+			}
+		}
+		if total > 0 {
+			emit(total)
+		}
 	}
 	return nil
 }

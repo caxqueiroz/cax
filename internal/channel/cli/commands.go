@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -81,8 +82,10 @@ func (m *model) handleCommand(line string) (string, bool, *creator.Wizard) {
 		return m.cmdFacts(args), false, nil
 	case "cwd":
 		return m.cmdCwd(args), false, nil
+	case "workspace", "ws":
+		return m.cmdWorkspace(args), false, nil
 	default:
-		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about /permissions /code /facts /cwd", name), false, nil
+		return fmt.Sprintf("unknown command /%s — try /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /theme /reload /new /about /permissions /code /facts /cwd /workspace", name), false, nil
 	}
 }
 
@@ -297,10 +300,10 @@ func (m model) cmdStats() string {
 	week := s.Usage.Week.InputTokens + s.Usage.Week.OutputTokens
 	month := s.Usage.Month.InputTokens + s.Usage.Month.OutputTokens
 	var b strings.Builder
-	fmt.Fprintf(&b, "model:   %s:%s\n", s.Provider, s.Model)
-	fmt.Fprintf(&b, "history: buffer %s/%s (%d%%) — in-memory turn budget; older turns summarized once this fills\n", humanizeTokensTenths(s.ContextTokens), humanizeTokensTenths(s.ContextBudget), pctOf(s.ContextTokens, s.ContextBudget))
-	fmt.Fprintf(&b, "tokens:  1d %s · 1w %s · 1m %s\n", humanizeTokens(day), humanizeTokens(week), humanizeTokens(month))
-	fmt.Fprintf(&b, "recall:  %d vectors · %d messages · db %s on disk\n", s.MemoryCount, s.MessageCount, humanizeBytes(s.MemSizeBytes))
+	fmt.Fprintf(&b, "model:    %s:%s\n", s.Provider, s.Model)
+	fmt.Fprintf(&b, "ctx:      %s/%s (%d%%) — prompt window used; older turns summarized once this fills\n", humanizeTokensTenths(s.ContextTokens), humanizeTokensTenths(s.ContextBudget), pctOf(s.ContextTokens, s.ContextBudget))
+	fmt.Fprintf(&b, "tokens:   1d %s · 1w %s · 1m %s\n", humanizeTokens(day), humanizeTokens(week), humanizeTokens(month))
+	fmt.Fprintf(&b, "memories: %d vectors · %d messages · db %s on disk\n", s.MemoryCount, s.MessageCount, humanizeBytes(s.MemSizeBytes))
 	fmt.Fprintf(&b, "tools:   %d · subagents %d", len(s.ToolNames), len(s.SubagentNames))
 	return b.String()
 }
@@ -895,5 +898,114 @@ func (m model) cmdCwd(args string) string {
 			return fmt.Sprintf("cwd: %s", err.Error())
 		}
 		return "cwd: pinned to " + clean
+	}
+}
+
+// cmdWorkspace manages the project workspace the agent uses for code_search
+// fan-out. Subcommands:
+//
+//	/workspace                — list current entries
+//	/workspace discover       — preview candidate sibling projects under the .git root
+//	/workspace add <path>     — add a project root (path required)
+//	/workspace remove <name>  — drop a project by name or path
+//
+// The list flows directly to the agent's PreGeneration hook: every entry
+// here gets searched in parallel on each turn, with results merged and
+// re-ranked by score. Use /workspace discover after cax launches inside a
+// monorepo to bulk-import its services.
+func (m model) cmdWorkspace(args string) string {
+	if m.workspace == nil {
+		return "workspace: not wired"
+	}
+	fields := tokenizeArgs(args)
+	sub := ""
+	if len(fields) > 0 {
+		sub = strings.ToLower(fields[0])
+	}
+	switch sub {
+	case "", "list", "ls":
+		entries := m.workspace.List()
+		if len(entries) == 0 {
+			return "workspace: no entries (try /workspace discover or /workspace add <path>)"
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "workspace (%d):\n", len(entries))
+		nameLen := 0
+		for _, e := range entries {
+			if len(e.Name) > nameLen {
+				nameLen = len(e.Name)
+			}
+		}
+		for _, e := range entries {
+			fmt.Fprintf(&b, "  %-*s  %s\n", nameLen, e.Name, e.Path)
+		}
+		return strings.TrimRight(b.String(), "\n")
+	case "discover":
+		root, children, err := m.workspace.Discover("")
+		if err != nil {
+			return fmt.Sprintf("workspace: discover failed: %s", err.Error())
+		}
+		if root == "" {
+			cwd, _ := os.Getwd()
+			return "workspace: no parent directory with 2+ projects found above " + cwd + "\n" +
+				"if this is a single-project repo, use /workspace add " + cwd + "\n" +
+				"otherwise relaunch cax from inside the monorepo / multi-repo parent"
+		}
+		if len(children) == 0 {
+			return "workspace: " + root + " has no child projects (looked for .git/go.mod/package.json/etc)"
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "discovered %d candidates under %s:\n", len(children), root)
+		for _, c := range children {
+			fmt.Fprintf(&b, "  %s  %s\n", c.Name, c.Path)
+		}
+		b.WriteString("run /workspace add <path> per project, or /workspace add-all to import them all")
+		return b.String()
+	case "add-all":
+		root, children, err := m.workspace.Discover("")
+		if err != nil || root == "" {
+			return "workspace: discover failed or no .git ancestor"
+		}
+		added, skipped := 0, 0
+		var errs []string
+		for _, c := range children {
+			if _, err := m.workspace.Add(c.Name, c.Path); err != nil {
+				skipped++
+				if len(errs) < 3 {
+					errs = append(errs, err.Error())
+				}
+			} else {
+				added++
+			}
+		}
+		msg := fmt.Sprintf("workspace: added %d, skipped %d", added, skipped)
+		if len(errs) > 0 {
+			msg += " (" + strings.Join(errs, "; ") + ")"
+		}
+		return msg
+	case "add":
+		if len(fields) < 2 {
+			return "usage: /workspace add <path> [name]"
+		}
+		name := ""
+		if len(fields) >= 3 {
+			name = fields[2]
+		}
+		e, err := m.workspace.Add(name, fields[1])
+		if err != nil {
+			return fmt.Sprintf("workspace: %s", err.Error())
+		}
+		return fmt.Sprintf("workspace: added %s → %s", e.Name, e.Path)
+	case "remove", "rm":
+		if len(fields) < 2 {
+			return "usage: /workspace remove <name|path>"
+		}
+		e, err := m.workspace.Remove(fields[1])
+		if err != nil {
+			return fmt.Sprintf("workspace: %s", err.Error())
+		}
+		return fmt.Sprintf("workspace: removed %s (%s)", e.Name, e.Path)
+	default:
+		return "workspace: unknown subcommand " + sub + "; try /workspace [list|discover|add|add-all|remove]"
 	}
 }

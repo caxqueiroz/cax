@@ -46,6 +46,23 @@ type pluginBackend interface {
 	Rebuild(ctx context.Context) error
 }
 
+// workspaceBackend is the surface the /workspace command drives. It mirrors
+// the workspace.Workspace public API without forcing the cli package to
+// depend on internal/workspace directly (avoids an import cycle if the
+// adapter ever wraps something richer).
+type workspaceBackend interface {
+	List() []WorkspaceEntry
+	Add(name, path string) (WorkspaceEntry, error)
+	Remove(nameOrPath string) (WorkspaceEntry, error)
+	Discover(start string) (root string, children []WorkspaceEntry, err error)
+}
+
+// WorkspaceEntry is the projection of workspace.Entry the CLI renders.
+type WorkspaceEntry struct {
+	Name string
+	Path string
+}
+
 // factsBackend is the surface the /facts command drives. It exposes the
 // memory.Store's fact CRUD without forcing the CLI to import internal/memory.
 // cmd/cax wires a thin adapter over memory.Store; tests can leave it nil
@@ -99,12 +116,23 @@ type historyEntry struct {
 	who      string // "you" | "bot" | "sys"
 	text     string
 	duration time.Duration
+	// rendered caches the width-dependent display block for this entry.
+	// Populated lazily by renderConversation; invalidated en masse when
+	// the viewport width changes (cache stamped at renderedWidth).
+	rendered      string
+	renderedWidth int
 }
 
 // --- custom messages pushed in from the worker goroutine via program.Send ---
 
 // streamDeltaMsg carries a streamed text fragment for the in-flight reply.
 type streamDeltaMsg struct{ text string }
+
+// inputTokensMsg delivers the estimated prompt-side token count for the
+// current turn — emitted once by the agent's PreGeneration hook after the
+// memory/recall/facts/code_search blocks have been assembled. The spinner
+// row uses it to show "↑ N · ↓ M" instead of just the downstream count.
+type inputTokensMsg struct{ tokens int }
 
 // toolEventMsg notes a tool starting/ending (Type from channel.StreamEvent).
 type toolEventMsg struct {
@@ -195,6 +223,7 @@ type model struct {
 	plugins     pluginBackend         // optional; nil when /plugin is not wired
 	creator     creatorBackend        // optional; nil when /new wizard finalize is not wired
 	facts       factsBackend          // optional; nil when memory.mode == snippets or backend isn't wired
+	workspace   workspaceBackend      // optional; powers /workspace command + agent code_search fan-out
 	projectRoot *projectroot.Resolver // optional; powers /cwd + per-turn code_search root
 
 	// wizard holds an in-progress /new flow. Nil when no /new is active —
@@ -235,6 +264,11 @@ type model struct {
 	// during a turn (e.g. "Shimmying"). Picked at submit time so it stays
 	// stable for the whole turn instead of jittering each spinner tick.
 	turnGerund string
+
+	// turnInputTokens is the estimated prompt token count for the active
+	// turn, delivered once by the agent's PreGeneration hook via an
+	// inputTokensMsg. 0 = not yet known. Reset on submitMsg.
+	turnInputTokens int
 
 	// hookEntries is the typed snapshot of plugin-declared hooks the /hooks
 	// command renders. Populated via WithHookEntries on CLI start; nil when
@@ -466,6 +500,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 
+	case inputTokensMsg:
+		m.turnInputTokens = msg.tokens
+		m.refreshViewport()
+		return m, nil
+
 	case toolEventMsg:
 		// Surfaced via /tools; no inline echo to keep the pane clean.
 		return m, nil
@@ -622,6 +661,7 @@ func (m model) submit() (tea.Model, tea.Cmd) {
 	m.lastErr = ""
 	m.turnStart = time.Now()
 	m.turnGerund = pickGerund()
+	m.turnInputTokens = 0
 	if wasEmpty {
 		// Welcome card just disappeared — recompute viewport so the conv box
 		// can claim the freed rows on the very next render.
