@@ -298,7 +298,11 @@ type model struct {
 func newModel(width, height int) model {
 	ta := textarea.New()
 	ta.Prompt = "❯ "
-	ta.Placeholder = "type a message, or /stats /tools /agents /schedule /model /skills /mcp /lsp /plugin /hooks /reload /new /facts"
+	// Placeholder is rendered ourselves in renderMessageBox on the MIDDLE
+	// row of the 5-row box (so the empty input shows a hint where the eye
+	// naturally lands, not glued to the cursor on row 0). Suppressing
+	// bubbles' built-in placeholder avoids double-rendering.
+	ta.Placeholder = ""
 	ta.CharLimit = 4000
 	ta.ShowLineNumbers = false
 	// Disable Enter→newline so Enter falls through to model.Update's explicit
@@ -307,8 +311,8 @@ func newModel(width, height int) model {
 	// bubbles bundles with Enter; we clear both at once by passing no keys.
 	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys())
 	ta.SetWidth(max(1, width-2))
-	ta.SetHeight(1)
-	ta.MaxHeight = 6
+	ta.SetHeight(5) // big-by-default input; grows up to 10 in resizeInput
+	ta.MaxHeight = 10 // matches resizeInput's growth ceiling
 	// Focus before the textarea is copied into the model value. Calling
 	// Focus() inside a value-receiver Init() mutates only the local copy and
 	// leaves the real input unfocused — which causes bubbles' textarea to
@@ -738,35 +742,26 @@ func (m model) advanceWizard(line string) (tea.Model, tea.Cmd) {
 // the hint line is dropped). The viewport sits INSIDE the box, so its
 // height is boxOuterHeight - 2 (border) - 2 (Padding(1,2) rows).
 func (m *model) resizeInput() {
-	h := max(m.input.LineCount(), 1)
-	if h > 6 {
-		h = 6
+	// Floor of 5 rows so the input always looks substantial, even when
+	// empty. Grows up to 10 as the user types multi-line content.
+	h := max(m.input.LineCount(), 5)
+	if h > 10 {
+		h = 10
 	}
 	if m.input.Height() != h {
 		m.input.SetHeight(h)
 	}
-	// Layout: welcome(11) + blank(1) + conv + blank(1) + status(1) + blank(1)
-	// + message(h+2) + footer. welcome = 6 art + 2 padding + 2 border + 1
-	// trailing blank. footer = max(hint, dropdown), where hint = 1 when
-	// terminal is tall enough, and dropdown = visible matches + 1 (help
-	// text) when the slash menu is open.
-	fixed := 11 + 1 + 1 + 1 + 2 // welcome + blank + status + blank + msg-border
-	footer := 0
-	if m.height >= minHintHeight {
-		footer = 1 // hint line baseline
-	}
+	// New layout (Option A): conv + blank + message(h+2) + blank + footer(1).
+	// No welcome card, no external status row, no tasks panel (tasks render
+	// inside the conversation now).
+	fixed := 1 + 2 + 1 + 1 // blank + msg-border + blank + footer
 	if vis := len(m.completion.matches); vis > 0 {
 		if vis > 7 {
 			vis = 7
 		}
-		dropdownH := vis + 1 // matches + one help-text row
-		if dropdownH > footer {
-			footer = dropdownH
-		}
+		fixed += vis + 1 // dropdown replaces the footer when visible
 	}
-	fixed += footer
 	boxOuter := max(m.height-fixed-h, 4)
-	// Viewport inside the box: subtract 2 border (top+bottom) + 2 padY (top+bottom).
 	vpH := max(boxOuter-2-2, 1)
 	m.viewport.Height = vpH
 }

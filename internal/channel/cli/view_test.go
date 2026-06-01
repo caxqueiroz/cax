@@ -192,7 +192,10 @@ func TestViewIncludesAllRegions(t *testing.T) {
 	out := m.View()
 	// After header removal: top-level chrome is conv + status + msg. The brand
 	// only appears in the welcome card on empty history.
-	for _, want := range []string{"conversation", "message", "ctx", "❯", "claude-opus", "1d", "memories"} {
+	// Redesigned view: status embedded in conversation border (model name
+	// + ctx %), footer line carries memories/tools. The "1d" tokens stat
+	// moved out (now /stats only).
+	for _, want := range []string{"conversation", "message", "ctx", "❯", "claude-opus", "memories"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("View missing %q", want)
 		}

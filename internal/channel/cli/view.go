@@ -79,87 +79,101 @@ func styles() themedStyles {
 // (lipgloss padding) before passing it in — or via the returned box style's
 // padding settings, which this helper applies internally.
 func borderWithTitle(content, title string, width int, color lipgloss.Color) string {
+	return borderWithTitleAndSuffix(content, title, "", width, color)
+}
+
+// borderWithTitleAndSuffix is borderWithTitle plus a right-aligned suffix
+// embedded into the top border (e.g. status info: model · ctx 23% · ↑↓
+// tokens · up 5m). The suffix is plain text; ANSI escapes from theming are
+// allowed but width math uses lipgloss.Width so they don't throw off the
+// fill calculation.
+func borderWithTitleAndSuffix(content, title, suffix string, width int, color lipgloss.Color) string {
 	if width < 4 {
 		width = 4
 	}
 	rb := lipgloss.RoundedBorder()
-	// Body: rounded border with the top side disabled. Padding inside the
-	// box is handled by the caller — we want the helper to compose just the
-	// labeled border, so it composes cleanly with viewports/textareas of
-	// known inner widths.
 	body := lipgloss.NewStyle().
 		Border(rb).
 		BorderTop(false).
 		BorderForeground(color).
-		Width(width - 2). // -2 to account for left/right border cells
+		Width(width - 2).
 		Render(content)
 
-	// Top: `╭` + `─ <title> ` + fill `─` + `╮`. When title is empty, render
-	// a plain top line: `╭` + `─×(width-2)` + `╮`.
-	top := composeTitledTop(title, width, rb, color)
+	top := composeTitledTopWithSuffix(title, suffix, width, rb, color)
 	return top + "\n" + body
 }
 
-// composeTitledTop builds the labeled top border line. It is exported via
-// borderWithTitle but kept separate so view_test.go can hit the title splice
-// logic directly without rendering a full box.
+// composeTitledTop builds the labeled top border line. Kept as a thin
+// shim over composeTitledTopWithSuffix for back-compat with tests.
 func composeTitledTop(title string, width int, rb lipgloss.Border, color lipgloss.Color) string {
+	return composeTitledTopWithSuffix(title, "", width, rb, color)
+}
+
+// composeTitledTopWithSuffix builds the labeled top border line with an
+// optional right-aligned suffix. Layout:
+//
+//	╭─ <title> ─────── <suffix> ─╮
+//
+// The Top rune fills between the label and the suffix so the total run
+// width is exactly inner cells. Suffix is right-justified with one Top rune
+// of padding before the closing corner so it doesn't kiss the border.
+func composeTitledTopWithSuffix(title, suffix string, width int, rb lipgloss.Border, color lipgloss.Color) string {
 	if width < 4 {
 		width = 4
 	}
 	borderStyle := lipgloss.NewStyle().Foreground(color)
 	inner := width - 2 // space between corner runes
+	titleTrim := strings.TrimSpace(title)
+	suffTrim := strings.TrimSpace(suffix)
 	var middle string
-	if strings.TrimSpace(title) == "" {
+	switch {
+	case titleTrim == "" && suffTrim == "":
 		middle = strings.Repeat(rb.Top, inner)
-	} else {
-		label := " " + strings.TrimSpace(title) + " "
-		// "─ <title> " starts at col 2 of the top run (one Top rune of
-		// padding before the label). Total runes used by `─` + label = 1 +
-		// len(label). The remainder fills with `─`.
-		lead := rb.Top + label
-		leadLen := lipgloss.Width(lead)
-		if leadLen >= inner {
-			// Title too long for this width: truncate to fit, keep the
-			// leading rune so the box still reads as a label.
-			middle = lead
-			if leadLen > inner {
-				// Best-effort: drop trailing runes off the label.
+	default:
+		var lead string
+		if titleTrim != "" {
+			lead = rb.Top + " " + titleTrim + " "
+		}
+		var trail string
+		if suffTrim != "" {
+			// Trail: " <suffix> " then `─` padding rune.
+			trail = " " + suffTrim + " " + rb.Top
+		}
+		leadW := lipgloss.Width(lead)
+		trailW := lipgloss.Width(trail)
+		if leadW+trailW >= inner {
+			// Not enough room — drop the suffix first, then truncate title.
+			if leadW >= inner {
 				runes := []rune(lead)
 				if inner < len(runes) {
 					middle = string(runes[:inner])
+				} else {
+					middle = lead
 				}
+			} else {
+				middle = lead + strings.Repeat(rb.Top, inner-leadW)
 			}
 		} else {
-			middle = lead + strings.Repeat(rb.Top, inner-leadLen)
+			fill := strings.Repeat(rb.Top, inner-leadW-trailW)
+			middle = lead + fill + trail
 		}
 	}
 	return borderStyle.Render(rb.TopLeft + middle + rb.TopRight)
 }
 
 // renderConversationBox wraps the viewport content in a labeled rounded box
-// titled `conversation`. width is total terminal width; height is the
-// number of rows allocated to the box (border + padding + content).
+// titled `conversation` with the always-on status badges embedded in the
+// top-right of the border (model · ctx · ↑↓ tokens · uptime).
 func (m model) renderConversationBox(width, height int) string {
 	col := borderColor()
 	boxOuter := max(width-2*len(leftIndent), 16)
 	if height < 4 {
 		height = 4
 	}
-	// Inner content lines = height - 2 (top + bottom border) - 2 (top+bottom padding row).
-	// Padding(1,2) costs 1 row top + 1 row bottom + 2 cols left + 2 cols right.
 	innerH := max(height-2-2, 1)
-	innerW := max(
-		// -2 border, -4 padding (2 each side)
-		boxOuter-2-4, 1)
+	innerW := max(boxOuter-2-4, 1)
 
-	// The viewport's own width/height already reflects the inner area
-	// (sized in WindowSizeMsg). Render it directly; padding adds margin.
 	body := m.viewport.View()
-	// Force the body to occupy exactly the inner area so the box bottom
-	// border always lines up regardless of how many history rows there are.
-	// MaxHeight pins the upper bound — Height alone only pads, it never
-	// truncates, so a viewport sized larger than the box would overflow.
 	body = lipgloss.NewStyle().
 		Width(innerW).
 		Height(innerH).
@@ -167,7 +181,47 @@ func (m model) renderConversationBox(width, height int) string {
 		MaxWidth(innerW).
 		Render(body)
 	padded := lipgloss.NewStyle().Padding(1, 2).Render(body)
-	return indentBlock(borderWithTitle(padded, "conversation", boxOuter, col))
+	suffix := m.renderBorderStatus()
+	return indentBlock(borderWithTitleAndSuffix(padded, "conversation", suffix, boxOuter, col))
+}
+
+// renderBorderStatus builds the right-aligned status suffix embedded in
+// the conversation border: model · ctx N% · ↑in ↓out · up Hms. Empty when
+// no status has been delivered yet. Per-element separators are " · " in
+// dim style.
+func (m model) renderBorderStatus() string {
+	if !m.hasStatus {
+		return ""
+	}
+	s := styles()
+	st := m.status
+
+	parts := []string{}
+	if st.Model != "" {
+		parts = append(parts, s.statusValue.Render(st.Model))
+	}
+	_, pct := renderBufferDots(s, st.ContextTokens, st.ContextBudget)
+	parts = append(parts, s.dim.Render("ctx ")+s.statusValue.Render(fmt.Sprintf("%d%%", pct)))
+	if m.turnInputTokens > 0 || m.streaming {
+		tk := s.dim.Render("↑")
+		if m.turnInputTokens > 0 {
+			tk += s.statusValue.Render(fmt.Sprintf("%d", m.turnInputTokens))
+		} else {
+			tk += s.dim.Render("·")
+		}
+		out := estimateTokens(m.stream)
+		tk += s.dim.Render(" ↓")
+		if out > 0 {
+			tk += s.statusValue.Render(fmt.Sprintf("%d", out))
+		} else {
+			tk += s.dim.Render("·")
+		}
+		parts = append(parts, tk)
+	}
+	if !m.sessionStart.IsZero() {
+		parts = append(parts, s.dim.Render("up ")+s.statusValue.Render(humanizeDuration(time.Since(m.sessionStart), false)))
+	}
+	return strings.Join(parts, s.dim.Render(" · "))
 }
 
 // renderCompletionDropdown renders a flat list of matches under the message
@@ -216,24 +270,34 @@ func (m model) renderCompletionDropdown(width int) string {
 }
 
 // renderMessageBox wraps the textarea in a labeled rounded box titled
-// `message`. Width is total terminal width; height grows with the textarea
-// (1..6 inner rows + 2 border).
+// `message`. Default height is 5 rows. When the input is empty, the
+// placeholder hint is rendered on row 3 (1-indexed) — the visual midpoint —
+// while the cursor stays on row 1. This decouples "where to look" from
+// "where you're typing" and matches Claude Code's spacious input feel.
 func (m model) renderMessageBox(width int) string {
 	col := borderColor()
 	boxOuter := max(width-2*len(leftIndent), 16)
-	innerW := max(
-		// -2 border, -2 padding (1 each side)
-		boxOuter-2-2, 1)
-	// Strip the trailing newline bubbles' textarea appends to each row — it
-	// would otherwise round up to an extra visual row inside the box.
+	innerW := max(boxOuter-2-2, 1)
 	body := strings.TrimRight(m.input.View(), "\n")
-	// Bubbles' placeholder rendering pads the last line with spaces past
-	// innerW, which lipgloss .Width then soft-wraps into an extra visual
-	// row. Trim trailing spaces line-by-line to prevent the wrap.
 	body = trimTrailingPerLine(body)
-	// Pin width AND height to the textarea's logical size so the box bottom
-	// border lands consistently. MaxHeight protects against any rogue line
-	// that still wraps so the layout math never overflows.
+
+	// Overlay our own placeholder text on the middle row when the input is
+	// empty. The textarea body always has m.input.Height() lines after the
+	// width/height pin below, so we work on the post-pin body via splice.
+	if m.input.Value() == "" {
+		s := styles()
+		placeholder := s.dim.Render("type a message, or / for commands")
+		lines := strings.Split(body, "\n")
+		mid := m.input.Height() / 2 // row 2 (0-indexed) for height=5; centers as height varies
+		for len(lines) <= mid {
+			lines = append(lines, "")
+		}
+		// Indent past the prompt cell so the placeholder lines up with the
+		// content column on every row.
+		lines[mid] = "  " + placeholder
+		body = strings.Join(lines, "\n")
+	}
+
 	body = lipgloss.NewStyle().
 		Width(innerW).
 		Height(m.input.Height()).
@@ -435,6 +499,15 @@ func (m *model) renderConversation() string {
 			b.WriteString(statusLine)
 		}
 		b.WriteByte('\n')
+
+		// Tasks panel inline, directly below the spinner row — mirrors
+		// Claude Code's "thinking + tasks below" pattern. Only renders
+		// while streaming AND when there are tasks; outside a turn the
+		// panel disappears so the conversation flows freely.
+		if tp := m.renderTaskPanel(innerWidth); tp != "" {
+			b.WriteString(tp)
+			b.WriteByte('\n')
+		}
 	}
 	if m.lastErr != "" {
 		b.WriteString(wrapErr.Render("✗ " + m.lastErr))
@@ -537,12 +610,31 @@ func (m model) renderTaskPanel(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// View composes the v2 layout: header box → blank → conversation box →
-// blank → status row → blank → message box → hint line. Falls back to a
-// plain-line layout when terminal height is too small.
+// View composes the redesigned layout (Option A from the design pass):
+//
+//	╭─ conversation ───────  gpt-5.5 · ctx 23% · ↑N ↓M · up 5m ─╮
+//	│ ❯ user message                                            │
+//	│ bot reply                                                 │
+//	│ ✻ Shimmying… 13s                                          │
+//	│   tasks 1/2                                               │
+//	│   ◐ task A                                                │
+//	│   ☑ task B                                                │
+//	╰───────────────────────────────────────────────────────────╯
+//	╭─ message ─────────────────────────────────────────────────╮
+//	│ ❯ │                                                       │
+//	│   │  type a message, or / for commands                    │
+//	│   │                                                       │
+//	│   │                                                       │
+//	│   │                                                       │
+//	╰───────────────────────────────────────────────────────────╯
+//	  ~/Dev/Pythia · 🔧 18 · 📚 142 memories · 13 services
+//
+// Status migrated into the conversation border (top-right). Tasks panel
+// renders INSIDE the conversation directly below the spinner (matches
+// Claude Code's "thinking + tasks below" pattern). Welcome card removed.
+// Message box bumped to 5 rows so the input area feels substantial.
 func (m model) View() string {
 	if m.width <= 0 || m.height <= 0 {
-		// Pre-WindowSizeMsg: render nothing visual yet.
 		return ""
 	}
 	if m.height < minBoxedHeight {
@@ -550,58 +642,54 @@ func (m model) View() string {
 	}
 
 	width := m.width
-	status := m.renderStatusRow(width)
 	message := m.renderMessageBox(width)
-	hint := ""
-	if m.height >= minHintHeight {
-		hint = m.renderHintLine()
-	}
+	footer := m.renderFooterLine(width)
 
-	// Layout: (welcome 8 rows when shown) + conv + blank + status + blank +
-	// (tasks panel rows when present) + message(input.Height()+2) + hint(0 or 1).
+	// Layout cost: conv + blank + message(input.Height()+2) + blank + footer.
 	msgH := m.input.Height() + 2
-	used := 1 + 1 + 1 + msgH // blank + status + blank + msg
-	if hint != "" {
-		used++
-	}
-
-	tasksPanel := m.renderTaskPanel(width)
-	tasksRows := 0
-	if tasksPanel != "" {
-		tasksRows = strings.Count(tasksPanel, "\n") + 1 + 1 // panel + trailing blank
-		used += tasksRows
-	}
-
-	// Welcome card is the permanent top banner: 6 rows art + 2 rows padding
-	// + 2 rows border + 1 row trailing blank = 11. Always visible so the
-	// brand mark persists.
-	const welcomeRows = 6 + 2 + 2 + 1
-	used += welcomeRows
-
+	used := 1 + msgH + 1 + 1 // blank between conv+message, message, blank, footer
 	convH := max(m.height-used, 4)
 	conv := m.renderConversationBox(width, convH)
-	welcome := m.renderWelcomeBlock(width)
 
-	parts := []string{welcome, "", conv, "", status, ""}
-	if tasksPanel != "" {
-		parts = append(parts, tasksPanel, "")
-	}
-	parts = append(parts, message)
-	// Footer: claude-code / pi.dev style dropdown sits BELOW the input when
-	// the user is composing a slash command. When no dropdown, the hint line
-	// shows the keybind reminders.
+	parts := []string{conv, "", message}
 	if len(m.completion.matches) > 0 {
 		parts = append(parts, m.renderCompletionDropdown(width))
-	} else if hint != "" {
-		parts = append(parts, hint)
+	} else if footer != "" {
+		parts = append(parts, "", footer)
 	}
 
 	if m.helpOpen {
 		overlay := indentBlock(styles().dim.Render(m.renderHelpOverlay()))
 		return lipgloss.JoinVertical(lipgloss.Left,
-			overlay, "", conv, "", status, "", message, hint)
+			overlay, "", conv, "", message, footer)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderFooterLine is the thin bottom info bar — cwd · tools · memories ·
+// services. Replaces the old packed status row. Returns "" when no status
+// has been delivered yet.
+func (m model) renderFooterLine(_ int) string {
+	if !m.hasStatus {
+		return ""
+	}
+	s := styles()
+	st := m.status
+	parts := []string{}
+	if st.CWD != "" {
+		parts = append(parts, s.dim.Render(displayCWD(st.CWD, 32)))
+	}
+	parts = append(parts, s.dim.Render(fmt.Sprintf("🔧 %d", len(st.ToolNames))))
+	parts = append(parts, s.dim.Render(fmt.Sprintf("📚 %d memories", st.MemoryCount)))
+	if m.workspace != nil {
+		if n := len(m.workspace.List()); n > 0 {
+			parts = append(parts, s.dim.Render(fmt.Sprintf("🗂 %d services", n)))
+		}
+	}
+	if n := len(st.RunningSubagents); n > 0 {
+		parts = append(parts, s.accent.Render(fmt.Sprintf("● agents %d", n)))
+	}
+	return leftIndent + strings.Join(parts, s.dim.Render("  ·  "))
 }
 
 // viewFallback is the minimal layout for terminals shorter than

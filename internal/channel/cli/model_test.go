@@ -152,16 +152,16 @@ func TestEnterSubmitsAndAltEnterInsertsNewline(t *testing.T) {
 func TestTextareaGrowsAndCaps(t *testing.T) {
 	m := newModel(80, 24)
 	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	// Start at height 1.
-	if m.input.Height() != 1 {
-		t.Fatalf("starting height = %d, want 1", m.input.Height())
+	// Redesign baseline: empty input is 5 rows tall so the box looks
+	// substantial and the placeholder centers.
+	if m.input.Height() != 5 {
+		t.Fatalf("starting height = %d, want 5", m.input.Height())
 	}
-	// Insert 8 newlines via SetValue then a no-op Update so the height
-	// recompute runs.
-	m.input.SetValue("a\nb\nc\nd\ne\nf\ng\nh\ni")
+	// 12 lines should saturate the cap at 10.
+	m.input.SetValue("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl")
 	m = update(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	if m.input.Height() != 6 {
-		t.Fatalf("capped height = %d, want 6", m.input.Height())
+	if m.input.Height() != 10 {
+		t.Fatalf("capped height = %d, want 10", m.input.Height())
 	}
 }
 
