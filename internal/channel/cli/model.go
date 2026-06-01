@@ -398,10 +398,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// and n/Esc (deny); swallow every other key so it doesn't leak into
 		// the input or trigger another command.
 		if m.pendingPerm != nil {
+			// Grant path: clear the modal silently. The tool's actual output
+			// follows in the next stream chunk — printing "✓ permission
+			// granted: Bash" once per Bash call (×N per turn) was just noise.
+			// Deny still logs because the tool didn't run; the user needs to
+			// see why.
 			switch msg.Type {
 			case tea.KeyEnter:
 				m.pendingPerm.answer(true)
-				m.history = append(m.history, historyEntry{who: "sys", text: "✓ permission granted: " + m.pendingPerm.title})
 				m.pendingPerm = nil
 			case tea.KeyEsc:
 				m.pendingPerm.answer(false)
@@ -411,7 +415,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch strings.ToLower(string(msg.Runes)) {
 				case "y":
 					m.pendingPerm.answer(true)
-					m.history = append(m.history, historyEntry{who: "sys", text: "✓ permission granted: " + m.pendingPerm.title})
 					m.pendingPerm = nil
 				case "n":
 					m.pendingPerm.answer(false)
