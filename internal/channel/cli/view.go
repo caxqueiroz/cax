@@ -282,8 +282,9 @@ func (m model) renderMessageBox(width int) string {
 	body = trimTrailingPerLine(body)
 
 	// Overlay our own placeholder text on the middle row when the input is
-	// empty. The textarea body always has m.input.Height() lines after the
-	// width/height pin below, so we work on the post-pin body via splice.
+	// empty. The per-line prompt func renders "  " (two-space pad) on every
+	// non-cursor row, so we splice our hint into the line WITHOUT adding
+	// extra indent — bubbles already produced the prompt cell for us.
 	if m.input.Value() == "" {
 		s := styles()
 		placeholder := s.dim.Render("type a message, or / for commands")
@@ -292,9 +293,13 @@ func (m model) renderMessageBox(width int) string {
 		for len(lines) <= mid {
 			lines = append(lines, "")
 		}
-		// Indent past the prompt cell so the placeholder lines up with the
-		// content column on every row.
-		lines[mid] = "  " + placeholder
+		// Replace the empty content after the 2-char prompt with our hint.
+		// The first 2 cells stay as the dimmed "  " from SetPromptFunc.
+		if len(lines[mid]) >= 2 {
+			lines[mid] = lines[mid][:2] + placeholder
+		} else {
+			lines[mid] = "  " + placeholder
+		}
 		body = strings.Join(lines, "\n")
 	}
 

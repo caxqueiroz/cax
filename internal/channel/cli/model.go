@@ -297,7 +297,16 @@ type model struct {
 
 func newModel(width, height int) model {
 	ta := textarea.New()
-	ta.Prompt = "❯ "
+	// Per-line prompt: ❯ on row 0 only, blank on every other row. The
+	// default bubbles behaviour shows the Prompt on every visible row
+	// which makes the 5-row input look like a stack of empty `❯` lines.
+	// SetPromptFunc supersedes the Prompt field entirely.
+	ta.SetPromptFunc(2, func(lineIdx int) string {
+		if lineIdx == 0 {
+			return "❯ "
+		}
+		return "  "
+	})
 	// Placeholder is rendered ourselves in renderMessageBox on the MIDDLE
 	// row of the 5-row box (so the empty input shows a hint where the eye
 	// naturally lands, not glued to the cursor on row 0). Suppressing
