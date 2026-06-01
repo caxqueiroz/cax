@@ -1,0 +1,60 @@
+name: release
+
+# Triggers on any tag starting with "v" (semver: v1.0.0, v2.3.4, v0.1.0-rc1).
+# To cut a release:
+#   git tag v0.1.0 && git push origin v0.1.0
+# The workflow cross-compiles for 6 platforms via `task build:all` and uploads
+# the binaries as assets on a fresh GitHub Release tied to the tag.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # required for softprops/action-gh-release to create the release
+
+jobs:
+  build-and-release:
+    name: Cross-compile and upload binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install task
+        uses: arduino/setup-task@v2
+        with:
+          version: '3.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cross-compile for all platforms
+        run: task build:all
+
+      - name: List artifacts
+        run: ls -lh dist/
+
+      - name: Compute checksums
+        working-directory: dist
+        run: sha256sum cax-* > SHA256SUMS
+
+      - name: Create GitHub Release with binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          # Mark prereleases automatically when the tag contains a hyphen
+          # (e.g. v0.1.0-rc1, v0.1.0-beta.1).
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            dist/cax-darwin-arm64
+            dist/cax-darwin-amd64
+            dist/cax-linux-amd64
+            dist/cax-linux-arm64
+            dist/cax-windows-amd64.exe
+            dist/cax-windows-arm64.exe
+            dist/SHA256SUMS

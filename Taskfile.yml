@@ -17,10 +17,81 @@ tasks:
     silent: true
 
   build:
-    desc: Build the cax binary into ./dist/cax
+    desc: Build the cax binary into ./dist/cax (current platform)
     cmds:
       - mkdir -p {{.DIST}}
       - go build -o {{.BIN}} {{.CMD}}
+
+  build:darwin-arm64:
+    desc: Build for macOS Apple Silicon
+    env:
+      GOOS: darwin
+      GOARCH: arm64
+      CGO_ENABLED: '0'
+    cmds:
+      - mkdir -p {{.DIST}}
+      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-darwin-arm64 {{.CMD}}
+
+  build:darwin-amd64:
+    desc: Build for macOS Intel
+    env:
+      GOOS: darwin
+      GOARCH: amd64
+      CGO_ENABLED: '0'
+    cmds:
+      - mkdir -p {{.DIST}}
+      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-darwin-amd64 {{.CMD}}
+
+  build:linux-amd64:
+    desc: Build for Linux x86_64
+    env:
+      GOOS: linux
+      GOARCH: amd64
+      CGO_ENABLED: '0'
+    cmds:
+      - mkdir -p {{.DIST}}
+      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-linux-amd64 {{.CMD}}
+
+  build:linux-arm64:
+    desc: Build for Linux ARM64 (servers / Raspberry Pi)
+    env:
+      GOOS: linux
+      GOARCH: arm64
+      CGO_ENABLED: '0'
+    cmds:
+      - mkdir -p {{.DIST}}
+      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-linux-arm64 {{.CMD}}
+
+  build:windows-amd64:
+    desc: Build for Windows x86_64 (produces cax-windows-amd64.exe)
+    env:
+      GOOS: windows
+      GOARCH: amd64
+      CGO_ENABLED: '0'
+    cmds:
+      - mkdir -p {{.DIST}}
+      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-windows-amd64.exe {{.CMD}}
+
+  build:windows-arm64:
+    desc: Build for Windows ARM64
+    env:
+      GOOS: windows
+      GOARCH: arm64
+      CGO_ENABLED: '0'
+    cmds:
+      - mkdir -p {{.DIST}}
+      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-windows-arm64.exe {{.CMD}}
+
+  build:all:
+    desc: Cross-compile binaries for every supported platform into ./dist/
+    cmds:
+      - task: build:darwin-arm64
+      - task: build:darwin-amd64
+      - task: build:linux-amd64
+      - task: build:linux-arm64
+      - task: build:windows-amd64
+      - task: build:windows-arm64
+      - 'echo ""; echo "release artifacts:"; ls -lh {{.DIST}}/cax-*'
 
   run:
     desc: 'Run cax (pass args after --: task run -- --flag)'

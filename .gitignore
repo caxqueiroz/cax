@@ -16,3 +16,9 @@ coverage.html
 .DS_Store
 .idea/
 .vscode/
+
+# Cross-compiled release binaries (produced by task build:all). The
+# canonical "dist/cax" for the current platform stays gitignored implicitly
+# under the existing dist/ rule; this just makes the intent explicit.
+dist/cax-*
+dist/SHA256SUMS
