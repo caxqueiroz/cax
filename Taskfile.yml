@@ -8,6 +8,16 @@ vars:
   CMD: ./cmd/cax
   COVERAGE_FILE: coverage.out
   COVERAGE_HTML: coverage.html
+  # Version stamping. Default: `git describe --tags --always --dirty` so
+  # local builds show something like "v0.1.0-3-gabc1234-dirty" (or "dev"
+  # in repos with no tags). Release CI overrides by exporting VERSION to
+  # the tag name (e.g. v0.1.0); see .github/workflows/release.yml.
+  VERSION:
+    sh: echo "${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
+  # Shared linker flags. -s -w strips debug symbols (smaller binary);
+  # -X injects the tag into the Version var that backs /about and the
+  # welcome card.
+  LDFLAGS: '-s -w -X github.com/caxqueiroz/cax/internal/channel/cli.Version={{.VERSION}}'
 
 tasks:
   default:
@@ -17,10 +27,10 @@ tasks:
     silent: true
 
   build:
-    desc: Build the cax binary into ./dist/cax (current platform)
+    desc: Build the cax binary into ./dist/cax (current platform; stamps {{.VERSION}})
     cmds:
       - mkdir -p {{.DIST}}
-      - go build -o {{.BIN}} {{.CMD}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.BIN}} {{.CMD}}
 
   build:darwin-arm64:
     desc: Build for macOS Apple Silicon
@@ -30,7 +40,7 @@ tasks:
       CGO_ENABLED: '0'
     cmds:
       - mkdir -p {{.DIST}}
-      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-darwin-arm64 {{.CMD}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.DIST}}/cax-darwin-arm64 {{.CMD}}
 
   build:darwin-amd64:
     desc: Build for macOS Intel
@@ -40,7 +50,7 @@ tasks:
       CGO_ENABLED: '0'
     cmds:
       - mkdir -p {{.DIST}}
-      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-darwin-amd64 {{.CMD}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.DIST}}/cax-darwin-amd64 {{.CMD}}
 
   build:linux-amd64:
     desc: Build for Linux x86_64
@@ -50,7 +60,7 @@ tasks:
       CGO_ENABLED: '0'
     cmds:
       - mkdir -p {{.DIST}}
-      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-linux-amd64 {{.CMD}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.DIST}}/cax-linux-amd64 {{.CMD}}
 
   build:linux-arm64:
     desc: Build for Linux ARM64 (servers / Raspberry Pi)
@@ -60,7 +70,7 @@ tasks:
       CGO_ENABLED: '0'
     cmds:
       - mkdir -p {{.DIST}}
-      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-linux-arm64 {{.CMD}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.DIST}}/cax-linux-arm64 {{.CMD}}
 
   build:windows-amd64:
     desc: Build for Windows x86_64 (produces cax-windows-amd64.exe)
@@ -70,7 +80,7 @@ tasks:
       CGO_ENABLED: '0'
     cmds:
       - mkdir -p {{.DIST}}
-      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-windows-amd64.exe {{.CMD}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.DIST}}/cax-windows-amd64.exe {{.CMD}}
 
   build:windows-arm64:
     desc: Build for Windows ARM64
@@ -80,7 +90,7 @@ tasks:
       CGO_ENABLED: '0'
     cmds:
       - mkdir -p {{.DIST}}
-      - go build -trimpath -ldflags "-s -w" -o {{.DIST}}/cax-windows-arm64.exe {{.CMD}}
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.DIST}}/cax-windows-arm64.exe {{.CMD}}
 
   build:all:
     desc: Cross-compile binaries for every supported platform into ./dist/

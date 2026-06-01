@@ -34,6 +34,12 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cross-compile for all platforms
+        env:
+          # Inject the tag name into the binaries' Version var so /about
+          # and the welcome card show the real release tag instead of the
+          # local `git describe` fallback (which on the CI checkout would
+          # show the commit sha, not the tag).
+          VERSION: ${{ github.ref_name }}
         run: task build:all
 
       - name: List artifacts
