@@ -205,10 +205,21 @@ func (m model) renderBorderStatus() string {
 	if m.turnInputTokens > 0 {
 		parts = append(parts, s.dim.Render("↑ ")+s.statusValue.Render(fmt.Sprintf("%d", m.turnInputTokens)))
 	}
-	// Downstream tokens: prefer the streaming buffer mid-turn, but fall back
-	// to the most recent bot reply's tokens when we're between turns so the
-	// number doesn't blank out the moment a reply lands.
-	down := estimateTokens(m.stream)
+	// Downstream tokens:
+	//   1. Mid-turn with a non-empty stream buffer → live estimate (chars/4).
+	//   2. After turn end → authoritative count from the provider's usage
+	//      payload (turnUsageMsg). Persists between turns until the next
+	//      turn lands a fresh count.
+	//   3. Final fallback → estimate from the most recent bot reply's text
+	//      (catches non-streaming providers AND the period before the
+	//      response.Usage arrives).
+	down := 0
+	if m.streaming {
+		down = estimateTokens(m.stream)
+	}
+	if down == 0 {
+		down = m.turnOutputTokens
+	}
 	if down == 0 {
 		if last := m.lastBotEntry(); last != nil {
 			down = estimateTokens(last.text)

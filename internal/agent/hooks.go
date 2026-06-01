@@ -434,6 +434,13 @@ func (d *hookDeps) postGeneration(ctx context.Context, hctx *dive.HookContext) e
 		if err := d.store.RecordUsage(ctx, "agent", model, hctx.Usage.InputTokens, hctx.Usage.OutputTokens, memory.UsageChat); err != nil {
 			slog.Warn("record usage failed", "err", err, "session_id", sid)
 		}
+		// Surface the AUTHORITATIVE input/output token counts to the channel.
+		// The PreGeneration estimate was provisional (chars/4); this is the
+		// actual count the provider reported, so the badge ↑N ↓M reflects
+		// reality for the rest of the session.
+		if emit, ok := hctx.Values["emit_turn_usage"].(func(in, out int)); ok {
+			emit(hctx.Usage.InputTokens, hctx.Usage.OutputTokens)
+		}
 	}
 
 	if rep, err := d.store.MaybeSummarize(ctx, sid, d.summarizerFn(), d.budgetOf()); err != nil {

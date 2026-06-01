@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -229,6 +230,16 @@ func (c *CLI) runTurn(ctx context.Context, send sender, handle channel.Handler, 
 		case "input_tokens":
 			n, _ := strconv.Atoi(ev.Text)
 			send(inputTokensMsg{tokens: n})
+		case "turn_usage":
+			// Format: "<in>/<out>". Parsed defensively — bad payload
+			// silently drops rather than panicking on Atoi.
+			if i := strings.IndexByte(ev.Text, '/'); i > 0 {
+				in, e1 := strconv.Atoi(ev.Text[:i])
+				out, e2 := strconv.Atoi(ev.Text[i+1:])
+				if e1 == nil && e2 == nil {
+					send(turnUsageMsg{input: in, output: out})
+				}
+			}
 		case "summarized":
 			// Buffered and shipped with turnDoneMsg so the sys notice
 			// renders AFTER the bot reply (chronologically correct: the

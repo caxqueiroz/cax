@@ -134,6 +134,15 @@ type streamDeltaMsg struct{ text string }
 // row uses it to show "↑ N · ↓ M" instead of just the downstream count.
 type inputTokensMsg struct{ tokens int }
 
+// turnUsageMsg delivers the AUTHORITATIVE token counts from the provider's
+// response usage payload — emitted once by the agent's PostGeneration hook
+// at turn end. Replaces the provisional PreGeneration estimate (which was
+// chars/4) with the real numbers so the badge ↑N ↓M is accurate.
+type turnUsageMsg struct {
+	input  int
+	output int
+}
+
 // toolEventMsg notes a tool starting/ending (Type from channel.StreamEvent).
 type toolEventMsg struct {
 	kind string // "tool_start" | "tool_end"
@@ -267,8 +276,15 @@ type model struct {
 
 	// turnInputTokens is the estimated prompt token count for the active
 	// turn, delivered once by the agent's PreGeneration hook via an
-	// inputTokensMsg. 0 = not yet known. Reset on submitMsg.
+	// inputTokensMsg. 0 = not yet known. Reset on submitMsg. Overwritten
+	// at turn end with the authoritative count from turnUsageMsg.
 	turnInputTokens int
+
+	// turnOutputTokens is the AUTHORITATIVE downstream token count from
+	// the provider's response usage. Populated by turnUsageMsg at turn
+	// end. Persists between turns so the badge keeps showing "↓ N" until
+	// the next turn lands a new count.
+	turnOutputTokens int
 
 	// hookEntries is the typed snapshot of plugin-declared hooks the /hooks
 	// command renders. Populated via WithHookEntries on CLI start; nil when
@@ -544,6 +560,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case inputTokensMsg:
 		m.turnInputTokens = msg.tokens
+		m.refreshViewport()
+		return m, nil
+
+	case turnUsageMsg:
+		m.turnInputTokens = msg.input
+		m.turnOutputTokens = msg.output
 		m.refreshViewport()
 		return m, nil
 

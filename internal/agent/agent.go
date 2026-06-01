@@ -402,6 +402,13 @@ func (a *Assistant) Handle(ctx context.Context, msg channel.Message, emit channe
 		dive.WithValue("emit_input_tokens", func(n int) {
 			emit(channel.StreamEvent{Type: "input_tokens", Text: strconv.Itoa(n)})
 		}),
+		// Per-turn closure the PostGeneration hook calls with the actual
+		// input/output token usage from the provider's response. Replaces
+		// the PreGeneration estimate with authoritative numbers in the
+		// TUI's ↑↓ badge.
+		dive.WithValue("emit_turn_usage", func(in, out int) {
+			emit(channel.StreamEvent{Type: "turn_usage", Text: fmt.Sprintf("%d/%d", in, out)})
+		}),
 		dive.WithEventCallback(callback),
 	)
 	if err != nil {
